@@ -11,6 +11,9 @@ var rom_edit: LineEdit
 var export_edit: LineEdit
 var world_opt: OptionButton
 var live_check: CheckBox
+var auto_check: CheckBox
+var _live_view := ""
+var _live_pos := Vector2i(-1, -1)
 var name_edit: LineEdit
 var kind_opt: OptionButton
 var info: Label
@@ -58,6 +61,10 @@ func _ready() -> void:
 	live_check = CheckBox.new()
 	live_check.text = "Follow RetroArch (player + live local map)"
 	bar.add_child(live_check)
+	auto_check = CheckBox.new()
+	auto_check.text = "Auto-link map transitions"
+	auto_check.button_pressed = true
+	bar.add_child(auto_check)
 	canvas = Control.new()
 	canvas.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	canvas.clip_contents = true
@@ -143,7 +150,7 @@ func _rebuild_image() -> void:
 
 func _process(delta: float) -> void:
 	_timer += delta
-	if _timer < 0.5 or not live_check.button_pressed:
+	if _timer < 0.25 or not live_check.button_pressed:
 		return
 	_timer = 0.0
 	_poll()
@@ -154,6 +161,12 @@ func _poll() -> void:
 	if s == null:
 		return
 	player = Vector2i(s.map_x, s.map_y)
+	var live := "local%d" % s.map_id if s.map_id != 0 else "world%d" % world_opt.selected
+	if live != _live_view:
+		if auto_check.button_pressed and _live_view != "" and _live_pos.x >= 0 and not s.in_battle:
+			_auto_link(_live_view, _live_pos, live, player)
+		_live_view = live
+	_live_pos = player
 	if s.map_id != 0:  # live local map from RAM
 		var key := "local%d" % s.map_id
 		var t := await ra.read_wram(FFVRam.TILE_MAP, FFVRam.TILE_MAP_SIZE * FFVRam.TILE_MAP_SIZE)
@@ -168,6 +181,27 @@ func _poll() -> void:
 	elif view_key.begins_with("local"):
 		_show_world(world_opt.selected)
 	canvas.queue_redraw()
+
+
+## Record a transition seen while following RetroArch: a marker where the party left the old map, one where it
+## arrived on the new map, and a link between them. Existing markers at those spots are reused.
+func _auto_link(from_view: String, from_pos: Vector2i, to_view: String, to_pos: Vector2i) -> void:
+	var a := _ensure_marker(from_view, from_pos, "entrance" if from_view.begins_with("world") else "exit")
+	var b := _ensure_marker(to_view, to_pos, "exit" if to_view.begins_with("world") else "entrance")
+	for l in links:
+		if l.a == a and l.b == b:
+			return
+	links.append({"a": a, "b": b, "note": "auto %s -> %s" % [from_view, to_view]})
+	_save_marks()
+	_set_status("Linked %s (%d,%d) -> %s (%d,%d)" % [from_view, from_pos.x, from_pos.y, to_view, to_pos.x, to_pos.y])
+
+
+func _ensure_marker(view: String, p: Vector2i, kind: String) -> int:
+	for i in marks.size():
+		if marks[i].view == view and marks[i].x == p.x and marks[i].y == p.y:
+			return i
+	marks.append({"view": view, "x": p.x, "y": p.y, "name": "auto", "kind": kind, "tile_id": -1})
+	return marks.size() - 1
 
 
 func _center(p: Vector2i) -> void:
