@@ -23,9 +23,9 @@ class Game:
     def read(self, off, n=1):
         want = "READ_CORE_RAM %x" % off
         for _ in range(8):
-            self.c.settimeout(0.01)
+            self.c.setblocking(False)
             try:
-                while True: self.c.recvfrom(65536)   # drop stale replies
+                while True: self.c.recvfrom(65536)   # drop stale replies (non-blocking: costs microseconds)
             except Exception: pass
             self.c.settimeout(1.0)
             r = self.cmd("READ_CORE_RAM %x %d" % (off, n), True)
@@ -44,20 +44,33 @@ class Game:
     def u16(self, o): b = self.read(o, 2); return b[0] | b[1] << 8
     def shot(self):
         self.cmd("SCREENSHOT"); time.sleep(0.5)
-        d = "/tmp/ffv-shots"; fs = sorted((os.path.join(d, f) for f in os.listdir(d)), key=os.path.getmtime)
+        d = os.environ.get("FFV_SHOTS", "/tmp/ffv-shots"); fs = sorted((os.path.join(d, f) for f in os.listdir(d)), key=os.path.getmtime)
         return fs[-1]
     slot = 0
-    STATES = "/mnt/project-files/retroarch-testbed/states/Snes9x"
+    # RetroArch's save-state folder for the core: set FFV_STATES to it (default: the container test bed). Saving and loading
+    # states is optional; without a readable folder the helpers below do nothing and return None.
+    STATES = os.environ.get("FFV_STATES", "/mnt/project-files/retroarch-testbed/states/Snes9x")
     def save_as(self, path):
         """Save a state of the current slot (no "save slot N" network command exists) and copy the file to `path`."""
         import glob, shutil
-        self.cmd("SAVE_STATE"); time.sleep(1.2)
-        fs = [f for f in glob.glob(self.STATES + "/*patched)(1).state*") if not f.endswith(".png")]
-        f = max(fs, key=os.path.getmtime); shutil.copy(f, path); return f
+        if not os.path.isdir(self.STATES): return None
+        t0 = time.time(); self.cmd("SAVE_STATE")
+        f = None
+        for _ in range(40):                      # wait for the emulator to write the file (newer than this call)
+            time.sleep(0.05)
+            fs = [g for g in glob.glob(self.STATES + "/*.state*") if not g.endswith(".png") and os.path.getmtime(g) >= t0 - 0.2]
+            if fs: f = max(fs, key=os.path.getmtime); break
+        if f is None: return None
+        time.sleep(0.1)
+        try: os.makedirs(os.path.dirname(path) or ".", exist_ok=True); shutil.copy(f, path)
+        except OSError: return None
+        return f
     def load_from(self, path, slot=1):
         import shutil
-        f = "%s/Final Fantasy V (Japan) (patched)(1).state%d" % (self.STATES, slot)
-        shutil.copy(path, f); self.load(slot)
+        if not (os.path.isdir(self.STATES) and os.path.exists(path)): return False
+        fs = [f for f in os.listdir(self.STATES) if f.endswith(".state%d" % slot)]
+        f = os.path.join(self.STATES, fs[0] if fs else "Final Fantasy V (Japan) (patched)(1).state%d" % slot)
+        shutil.copy(path, f); self.load(slot); return True
     def load(self, slot): self.cmd("LOAD_STATE_SLOT %d" % slot); self.slot = slot; time.sleep(1.0)
 
     # ---- state ----

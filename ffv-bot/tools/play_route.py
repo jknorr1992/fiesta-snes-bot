@@ -13,6 +13,7 @@ from ffv_decomp import decompress
 ROM = sys.argv[1] if len(sys.argv) > 1 else "/mnt/project-files/FFV/Final Fantasy V (Japan) (patched)(1).sfc"
 HERE = os.path.dirname(__file__)
 STATE_DIR = "/mnt/project-files/retroarch-testbed/states/Snes9x"
+STATE_DIR = os.environ.get("ROUTE_STATES", os.path.join(__import__("tempfile").gettempdir(), "route_states"))   # where the per-step states are copied
 STATE_NAME = "Final Fantasy V (Japan) (patched)(1).state%d"
 
 class Runner:
@@ -157,13 +158,13 @@ class Runner:
             if m == target and (tile is None or m < 3 or tile in self.reach_set(m, *self.n.fpos()[1:3])): return True
             path = self.route_maps(m, target, tile)
             if not path and self.n.pos()[3] == 1:
-                res = self.n.leave_map(); self.say("  leave map", m, res, self.n.pos()); self.n.dialog(); time.sleep(0.5)
+                res = self.n.leave_map(); self.say("  leave map", m, res, self.n.pos()); self.n.dialog(); time.sleep(0.1)
                 if res == "mapchange": continue
             if not path: self.say("no entrance path", m, "->", target); return False
             self.load_free(m)
             fm, x, y, dm = path[0]
             if x < 0:
-                res = self.n.leave_map(); self.say("  leave map", fm, res, self.n.pos()); self.n.dialog(); time.sleep(0.5); continue
+                res = self.n.leave_map(); self.say("  leave map", fm, res, self.n.pos()); self.n.dialog(); time.sleep(0.1); continue
             r = self.walk(x, y)
             self.say("  entrance", fm, (x, y), "->", dm, r, self.n.pos())
             if (fm, x, y, dm) in self.trig_info and r == "arrived":
@@ -183,7 +184,7 @@ class Runner:
                     if self.n.stable()[0] == fm and abs(qx - x) + abs(qy - y) <= 2: self.bad.add((fm, x, y))
                 continue
             if r not in ("mapchange", "arrived"): return False
-            self.n.dialog(); time.sleep(0.5)
+            self.n.dialog(); time.sleep(0.1)
         return False
 
     OPP = {"UP": "DOWN", "DOWN": "UP", "LEFT": "RIGHT", "RIGHT": "LEFT"}
@@ -280,13 +281,13 @@ class Runner:
                 if f not in (510, 511): self.say("  flag", f, self.n.flag(f))
             self.say("  now", self.n.pos(), "ok" if ok else "FAILED")
             if not ok: return i
-            self.n.save_as("/tmp/route_step_%03d.state" % i)
+            self.n.save_as(os.path.join(STATE_DIR, "route_step_%03d.state" % i))
         return None
 
 if __name__ == "__main__":
     f = int(sys.argv[2]) if len(sys.argv) > 2 else 1
     l = int(sys.argv[3]) if len(sys.argv) > 3 else 999
     r = Runner()
-    if not os.environ.get('NOLOAD'): r.n.load_from('/tmp/route_step_%03d.state' % (f - 1)) if f > 1 else r.n.load(1)
+    if not os.environ.get('NOLOAD'): r.n.load_from(os.path.join(STATE_DIR, 'route_step_%03d.state' % (f - 1))) if f > 1 else r.n.load(1)
     time.sleep(1)
     print("stopped at", r.run(f, l))

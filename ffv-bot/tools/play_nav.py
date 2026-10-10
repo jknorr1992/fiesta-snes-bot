@@ -5,7 +5,7 @@ RAM position feedback; blocked steps are remembered and replanned. Cheats are fo
 import sys, os, time
 from collections import deque
 sys.path.insert(0, os.path.dirname(__file__))
-from play import Game
+from play import Game, IDS
 from world_model import World
 
 DIRS = {"UP": (0, -1), "DOWN": (0, 1), "LEFT": (-1, 0), "RIGHT": (1, 0)}
@@ -68,7 +68,7 @@ class Nav(Game):
             if p == last: n += 1
             else: last, n = p, 1
             if n >= tries: return p
-            time.sleep(0.05)
+            self.wait(3)
         return last
 
     def fight(self, limit=1500):
@@ -83,7 +83,7 @@ class Nav(Game):
         """A message box is open ($B57), a battle is on ($18) or the party is being moved by a script (position changing)."""
         b = self.read(0xB57, 1)[0], self.read(0x18, 1)[0]
         if any(b): return True
-        p = self.fpos(); time.sleep(0.4)
+        p = self.fpos(); self.wait(8)
         return self.fpos() != p
 
     def dialog(self, n=40):
@@ -95,7 +95,7 @@ class Nav(Game):
             if not self.busy():
                 quiet += 1
                 if quiet >= 4: break          # idle for a few polls: the scene is over
-                time.sleep(0.15); continue
+                self.wait(4); continue
             quiet = 0
             self.press("A", 3, 3); k += 1
         return k
@@ -104,9 +104,9 @@ class Nav(Game):
         """Run scenes to the end: keep pressing A until nothing is running for ~2 s."""
         for _ in range(limit):
             self.dialog(60)
-            time.sleep(0.5)
+            self.wait(10)
             if not self.busy():
-                time.sleep(1.0)
+                self.wait(20)
                 if not self.busy(): return True
         return False
 
@@ -117,6 +117,29 @@ class Nav(Game):
         self.press("A", 4, 30); self.wait(60)
 
     # ---- movement ----
+    def run_dirs(self, dirs, start, per_tile=24):
+        """Walk a chain of directions with the key held continuously, polling the position every frame (60 Hz). The pad is latched, so the
+        next direction is sent the moment the party reaches the previous tile (no stop between tiles); the last key is released as soon
+        as the final tile is reached so it cannot overshoot. Returns (tiles walked, pos)."""
+        m0, cx, cy = self.fpos(); held = None; done = 0
+        for d in dirs:
+            dx, dy = DIRS[d]; exp = (cx + dx, cy + dy)
+            if held != d:
+                if held: self._send(IDS[held], False)
+                self._send(IDS[d], True); held = d
+            for _ in range(per_tile):
+                p = self.fpos()                 # one RAM read per emulator frame: the read itself paces the loop at 60 Hz
+                if p[0] != m0 or p[1:] == exp: break
+            if p[0] != m0 or p[1:] != exp: break
+            cx, cy = exp; done += 1
+        if held: self._send(IDS[held], False)
+        last = None
+        for _ in range(10):                     # let the last tile finish
+            cur = self.fpos()
+            if cur == last: break
+            last = cur
+        return done, self.pos()
+
     def step(self, d, frames=14):
         """One tile in direction d. The engine keeps walking while the key is down at the tile boundary, so tap the key for a few
         frames (a held key overshoots by a tile), fall back to a longer hold when the tap did not start a move."""
@@ -254,7 +277,12 @@ class Nav(Game):
                 if nopath > 6: return self.probe(x, y, m0) or "nopath"
                 for _ in range(3): self.press("A", 4, 14)    # result screens ($18 is already 0) need A presses
                 self.settle(30); continue   # battle result screens and scripts leave the RAM grid unusable for a while
-            for d in path[:12]:
+            chain = path[:12]
+            k, p = self.run_dirs(chain, (cx, cy))
+            if p[0] != m0: return "mapchange"
+            cx, cy = p[1], p[2]
+            if k == len(chain): continue      # whole chain walked: replan from here
+            for d in chain[k:]:
                 moved, p = self.step(d)
                 if p[0] != m0: return "mapchange"
                 if not moved:
