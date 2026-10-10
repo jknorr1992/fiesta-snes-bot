@@ -15,7 +15,11 @@
    "verified": true,
    "needs": [
     "meteor_site"
-   ]
+   ],
+   "when": {
+    "flag": 306
+   },
+   "note": "Event 44 on the x=27 column of the forest (after the goblin events 42/43) sets flag 306."
   },
   {
    "id": "reach_galuf",
@@ -23,7 +27,11 @@
    "verified": true,
    "needs": [
     "first_battle"
-   ]
+   ],
+   "when": {
+    "flag": 71
+   },
+   "note": "Event 36 at (39,16) sets flag 71 (needs flag 70 from map 210). Unverified in play."
   },
   {
    "id": "leave_forest",
@@ -33,7 +41,7 @@
     "reach_galuf"
    ],
    "when": {
-    "flag": 306
+    "in_map": 0
    },
    "note": "Flag 306 (set by event 44) differs between the new-game state and the world checkpoint after leaving the forest."
   },
