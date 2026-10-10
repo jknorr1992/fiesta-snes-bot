@@ -7,6 +7,7 @@ var gil := 0
 var map_x := 0
 var map_y := 0
 var map_id := 0
+var inventory := {}  # item id -> quantity
 var party: Array[Dictionary] = []  ## {slot, flags, job, level, exp, hp, max_hp, mp, max_mp}
 
 static var _jobs: PackedStringArray = PackedStringArray()
@@ -35,6 +36,12 @@ static func read(ra: RetroArchClient) -> FFVGameState:
 	s.map_x = misc[FFVRam.MAP_X - 0x0900]
 	s.map_y = misc[FFVRam.MAP_Y - 0x0900]
 	s.map_id = misc[FFVRam.MAP_ID - 0x0900]
+	var ids := await ra.read_wram(FFVRam.INV_IDS, 256)
+	var qty := await ra.read_wram(FFVRam.INV_QTY, 256)
+	if ids.size() == 256 and qty.size() == 256:
+		for i in 256:
+			if ids[i] != 0 and qty[i] > 0:
+				s.inventory[ids[i]] = int(s.inventory.get(ids[i], 0)) + qty[i]
 	for i in FFVRam.PARTY_SLOTS:
 		var o := i * FFVRam.PARTY_STRIDE
 		s.party.append({
@@ -57,4 +64,6 @@ func describe() -> String:
 		if c.max_hp == 0:
 			continue
 		lines.append("  slot%d %s Lv%d HP %d/%d MP %d/%d exp %d" % [c.slot, job_name(c.job), c.level, c.hp, c.max_hp, c.mp, c.max_mp, c.exp])
+	if not inventory.is_empty():
+		lines.append("  items: " + str(inventory))
 	return "\n".join(lines)

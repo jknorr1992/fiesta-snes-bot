@@ -8,6 +8,7 @@
 | $0947 | Gil (u24 LE), 500 at new game |
 | $0AD8 / $0AD9 | Map X / Y tile position |
 | $10000 | 64x64 local-map tile id grid (row-major); passability learned at runtime |
+| $0640 / $0740 | Inventory: 256 slots of item id / quantity (found by opening a chest: Phoenix Down id 228; new game has id 224 x3, probably Potion) |
 
 Found by WRAM snapshot/diff against checkpoint save states in the test bed (see retroarch-testbed/README.md).
 Unknown so far: dialog flag, map id, inventory, menu state, story flags.
