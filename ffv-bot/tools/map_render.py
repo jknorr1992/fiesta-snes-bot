@@ -38,9 +38,10 @@ class Maps:
         return decompress(self.r, base + u16(self.r, base + 2 * i), True)
 
     def gfx(self, i):
+        """One 0x2000-byte graphics block (256 4bpp characters). The pointer table's length differences are NOT block lengths
+        (blocks overlap the next entry's start); whole 0x2000 blocks match save-state VRAM dumps byte for byte."""
         a = 0x1C2E24 + self.gfx_ptr[i]
-        n = min(self.gfx_ptr[i + 1] - self.gfx_ptr[i], 0x2000)
-        return self.r[a:a + n].ljust(0x2000, b"\0")
+        return self.r[a:a + 0x2000].ljust(0x2000, b"\0")
 
     def palette(self, i):
         o = 0x3BB00 + 256 * i

@@ -172,8 +172,23 @@ class Runner:
                 continue
             if r == "nopath" and self.n.pos()[3] == 0 and self.board_vehicle(): continue    # reachable by boat/other vehicle
             if r == "nopath": self.bad.add((fm, x, y)); continue    # unreachable entrance on foot: try another route
+            if r == "arrived" and self.n.stable()[0] == fm and (fm, x, y, dm) not in self.trig_info:
+                self.bounce()                      # arrival tile is the entrance tile itself: step off and back on
+                if self.n.stable()[0] == fm: self.bad.add((fm, x, y))
+                continue
             if r not in ("mapchange", "arrived"): return False
             self.n.dialog(); time.sleep(0.5)
+        return False
+
+    OPP = {"UP": "DOWN", "DOWN": "UP", "LEFT": "RIGHT", "RIGHT": "LEFT"}
+    def bounce(self):
+        m0 = self.n.stable()[0]
+        for d in ("DOWN", "UP", "LEFT", "RIGHT"):
+            moved, p = self.n.step(d)
+            if p[0] != m0: return True
+            if moved:
+                moved, p = self.n.step(self.OPP[d])
+                return True
         return False
 
     def board_vehicle(self):
