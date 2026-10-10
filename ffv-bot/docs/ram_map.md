@@ -19,7 +19,7 @@ Unknown so far: dialog flag, menu/battle-cursor state, story flags, treasure-ope
 
 ## Event flags (from the wiki dump, confirmed by diff)
 - $0A14..$0AD3 (96 bytes): event/story bits; event n = byte (n>>3) bit (n&7). Diffing new-game vs world-after-crater flipped events 306 (byte $0A3A bit 2) and 455 ($0A4C bit 7).
-- $09D4..$09F3: treasures-opened bits. $0B57 message dialog open (wiki, unverified).
+- $09D4..$09F3: treasures-opened bits. $0B57 message dialog open (verified: 1 during the Boco dialog).
 - Wiki extracts: /mnt/project-files/ffv-bot-notes/wiki-extracts.md
 
 ## Static world map from ROM (verified)
