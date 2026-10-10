@@ -24,3 +24,6 @@ With "Follow RetroArch" on, "Auto-link map transitions" (default on) records eve
 ## Run the bot
 
 `godot --path ffv-bot` opens the bot runner (the main scene): enter the RetroArch host, optionally the ROM path (loads the world map), press Connect, then Start bot. It handles battles, dialog and the opening forest, explores local maps, and shows the advisor's next goals; Stop interrupts it between actions. The name entry screen has no RAM flag yet, so press "Confirm name screen" when it appears. The old test bench is `scenes/test_bench.tscn`.
+
+## Route
+data/route.json goals ep_* are generated from the ROM event path (tools/route_to_goals.py, docs/event_path.md); the old guide-derived goals are kept under guide_goals.

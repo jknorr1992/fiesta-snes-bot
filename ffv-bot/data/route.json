@@ -1,6 +1,1054 @@
 {
- "_note": "Route skeleton from the user's Game guide.txt (ffv-bot-notes/game-guide.txt). Goals marked verified:false have no RAM condition yet; event flags are mapped as the story is played. 'when' is RAM-checkable (map id, flag, gil, levels).",
+ "_note": "Opening goals verified in play; ep_* goals are generated from the ROM event data (tools/route_to_goals.py, docs/event_path.md). Old guide-derived goals are kept in guide_goals.",
  "goals": [
+  {
+   "id": "meteor_site",
+   "title": "Walk into the crater at Tycoon and watch the meteor scene",
+   "when": {
+    "in_map": 122
+   },
+   "verified": true
+  },
+  {
+   "id": "first_battle",
+   "title": "Fight the goblins in the meteor forest and name your character",
+   "verified": true,
+   "needs": [
+    "meteor_site"
+   ],
+   "when": {
+    "flag": 306
+   },
+   "note": "Event 44 on the x=27 column of the forest (after the goblin events 42/43) sets flag 306."
+  },
+  {
+   "id": "reach_galuf",
+   "title": "Meet Lenna and Galuf in the forest",
+   "verified": true,
+   "needs": [
+    "first_battle"
+   ],
+   "when": {
+    "flag": 16
+   },
+   "note": "Flag 16 is set once the Lenna/Galuf scene on map 122 has played (verified from a new-game replay). (39,15) is a much later return to this map."
+  },
+  {
+   "id": "leave_forest",
+   "title": "Leave the forest back the way you came (the entry tile)",
+   "verified": true,
+   "needs": [
+    "reach_galuf"
+   ],
+   "when": {
+    "in_map": 0
+   },
+   "note": "Flag 306 (set by event 44) differs between the new-game state and the world checkpoint after leaving the forest."
+  },
+  {
+   "id": "choose_jobs",
+   "title": "Set the party's jobs",
+   "job_select": true,
+   "verified": false,
+   "needs": [
+    "leave_forest"
+   ]
+  },
+  {
+   "id": "levels_5",
+   "title": "Get everyone to level 5 on the way",
+   "when": {
+    "min_level_all": 5
+   },
+   "verified": false,
+   "needs": [
+    "choose_jobs"
+   ],
+   "bottleneck": true,
+   "safety": "Do not grind past what the next fight needs."
+  },
+  {
+   "id": "ep_001",
+   "needs": [
+    "levels_5"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Event 41: trigger World 1 (175,142)",
+   "at": {
+    "map": 0,
+    "x": 175,
+    "y": 142
+   }
+  },
+  {
+   "id": "ep_002",
+   "needs": [
+    "ep_001"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Event 477: trigger Meteor at Tycoon (46,13) (sets flag 16)",
+   "when": {
+    "flag": 16
+   },
+   "at": {
+    "map": 122,
+    "x": 46,
+    "y": 13
+   }
+  },
+  {
+   "id": "ep_003",
+   "needs": [
+    "ep_002"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Event 45: trigger World 1 (156,139)",
+   "at": {
+    "map": 0,
+    "x": 156,
+    "y": 139
+   }
+  },
+  {
+   "id": "ep_004",
+   "needs": [
+    "ep_003"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Event 1055: trigger West Valley (11,14) (sets flag 17)",
+   "when": {
+    "flag": 17
+   },
+   "at": {
+    "map": 17,
+    "x": 11,
+    "y": 14
+   }
+  },
+  {
+   "id": "ep_005",
+   "needs": [
+    "ep_004"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Enter map 18 (entrance 0 (165,115))",
+   "when": {
+    "in_map": 18
+   }
+  },
+  {
+   "id": "ep_006",
+   "needs": [
+    "ep_005"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Event 47: trigger map 18 (32,35) (sets flag 282)",
+   "when": {
+    "flag": 282
+   },
+   "at": {
+    "map": 18,
+    "x": 32,
+    "y": 35
+   }
+  },
+  {
+   "id": "ep_007",
+   "needs": [
+    "ep_006"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Enter map 20 (entrance 19 (19,37))",
+   "when": {
+    "in_map": 20
+   }
+  },
+  {
+   "id": "ep_008",
+   "needs": [
+    "ep_007"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Enter map 21 (entrance 20 (27,10))",
+   "when": {
+    "in_map": 21
+   }
+  },
+  {
+   "id": "ep_009",
+   "needs": [
+    "ep_008"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Enter map 22 (entrance 21 (41,37))",
+   "when": {
+    "in_map": 22
+   }
+  },
+  {
+   "id": "ep_010",
+   "needs": [
+    "ep_009"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Event 58: trigger map 22 (28,18) (sets flag 291)",
+   "when": {
+    "flag": 291
+   },
+   "at": {
+    "map": 22,
+    "x": 28,
+    "y": 18
+   }
+  },
+  {
+   "id": "ep_011",
+   "needs": [
+    "ep_010"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Event 1094: trigger map 24 (20,10) (sets flag 21)",
+   "when": {
+    "flag": 21
+   },
+   "at": {
+    "map": 24,
+    "x": 20,
+    "y": 10
+   }
+  },
+  {
+   "id": "ep_012",
+   "needs": [
+    "ep_011"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Event 79: trigger World 1 (170,88)",
+   "at": {
+    "map": 0,
+    "x": 170,
+    "y": 88
+   }
+  },
+  {
+   "id": "ep_013",
+   "needs": [
+    "ep_012"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Event 119: trigger Torna Canal (53,34) (sets flag 290) [battle 2]",
+   "when": {
+    "flag": 290
+   },
+   "at": {
+    "map": 40,
+    "x": 53,
+    "y": 34
+   }
+  },
+  {
+   "id": "ep_014",
+   "needs": [
+    "ep_013"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Event 1189: trigger Ship Graveyard (47,10) (sets flag 508)",
+   "when": {
+    "flag": 508
+   },
+   "at": {
+    "map": 43,
+    "x": 47,
+    "y": 10
+   }
+  },
+  {
+   "id": "ep_015",
+   "needs": [
+    "ep_014"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Enter North Mountain (entrance 0 (226,39))",
+   "when": {
+    "in_map": 59
+   }
+  },
+  {
+   "id": "ep_016",
+   "needs": [
+    "ep_015"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Enter map 60 (entrance 59 (36,40))",
+   "when": {
+    "in_map": 60
+   }
+  },
+  {
+   "id": "ep_017",
+   "needs": [
+    "ep_016"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Enter map 63 (entrance 60 (59,20))",
+   "when": {
+    "in_map": 63
+   }
+  },
+  {
+   "id": "ep_018",
+   "needs": [
+    "ep_017"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Enter map 58 (entrance 63 (10,12))",
+   "when": {
+    "in_map": 58
+   }
+  },
+  {
+   "id": "ep_019",
+   "needs": [
+    "ep_018"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Event 720: trigger map 58 (52,54)",
+   "at": {
+    "map": 58,
+    "x": 52,
+    "y": 54
+   }
+  },
+  {
+   "id": "ep_020",
+   "needs": [
+    "ep_019"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Enter North Mountain > Summit (entrance 61 (10,11))",
+   "when": {
+    "in_map": 62
+   }
+  },
+  {
+   "id": "ep_021",
+   "needs": [
+    "ep_020"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Event 91: trigger North Mountain > Summit (15,13) (sets flag 36)",
+   "when": {
+    "flag": 36
+   },
+   "at": {
+    "map": 62,
+    "x": 15,
+    "y": 13
+   }
+  },
+  {
+   "id": "ep_023",
+   "needs": [
+    "ep_021"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Enter Castle Worus (entrance 0 (210,115))",
+   "when": {
+    "in_map": 89
+   }
+  },
+  {
+   "id": "ep_024",
+   "needs": [
+    "ep_023"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Enter 1F (entrance 89 (28,31))",
+   "when": {
+    "in_map": 97
+   }
+  },
+  {
+   "id": "ep_025",
+   "needs": [
+    "ep_024"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Event 95: trigger 1F (44,40) (sets flag 482)",
+   "when": {
+    "flag": 482
+   },
+   "at": {
+    "map": 97,
+    "x": 44,
+    "y": 40
+   }
+  },
+  {
+   "id": "ep_026",
+   "needs": [
+    "ep_025"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Event 125: trigger World 1 (204,84)",
+   "at": {
+    "map": 0,
+    "x": 204,
+    "y": 84
+   }
+  },
+  {
+   "id": "ep_027",
+   "needs": [
+    "ep_026"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Enter map 120 (entrance 119 (16,15))",
+   "when": {
+    "in_map": 120
+   }
+  },
+  {
+   "id": "ep_028",
+   "needs": [
+    "ep_027"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Enter map 121 (entrance 120 (44,18))",
+   "when": {
+    "in_map": 121
+   }
+  },
+  {
+   "id": "ep_029",
+   "needs": [
+    "ep_028"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Event 100: trigger map 121 (18,52) (sets flag 42)",
+   "when": {
+    "flag": 42
+   },
+   "at": {
+    "map": 121,
+    "x": 18,
+    "y": 52
+   }
+  },
+  {
+   "id": "ep_031",
+   "needs": [
+    "ep_029"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Enter Tule (entrance 0 (130,89))",
+   "when": {
+    "in_map": 32
+   }
+  },
+  {
+   "id": "ep_032",
+   "needs": [
+    "ep_031"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Enter Zokk's House (entrance 32 (33,21))",
+   "when": {
+    "in_map": 39
+   }
+  },
+  {
+   "id": "ep_034",
+   "needs": [
+    "ep_032"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Enter Wind Shrine (entrance 0 (182,52))",
+   "when": {
+    "in_map": 27
+   }
+  },
+  {
+   "id": "ep_035",
+   "needs": [
+    "ep_034"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Enter 1F (entrance 27 (27,20))",
+   "when": {
+    "in_map": 28
+   }
+  },
+  {
+   "id": "ep_036",
+   "needs": [
+    "ep_035"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Enter 2F (entrance 28 (12,53))",
+   "when": {
+    "in_map": 29
+   }
+  },
+  {
+   "id": "ep_037",
+   "needs": [
+    "ep_036"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Enter 3F (entrance 29 (50,14))",
+   "when": {
+    "in_map": 30
+   }
+  },
+  {
+   "id": "ep_038",
+   "needs": [
+    "ep_037"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Enter Wind Crystal (entrance 30 (49,50))",
+   "when": {
+    "in_map": 31
+   }
+  },
+  {
+   "id": "ep_039",
+   "needs": [
+    "ep_038"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Event 63: trigger Wind Crystal (45,25) (sets flag 23)",
+   "when": {
+    "flag": 23
+   },
+   "at": {
+    "map": 31,
+    "x": 45,
+    "y": 25
+   }
+  },
+  {
+   "id": "ep_040",
+   "needs": [
+    "ep_039"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Event 75: trigger Zokk's House (19,22) (sets flag 28)",
+   "when": {
+    "flag": 28
+   },
+   "at": {
+    "map": 39,
+    "x": 19,
+    "y": 22
+   }
+  },
+  {
+   "id": "ep_041",
+   "needs": [
+    "ep_040"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Event 1315: board ship  (sets flag 332)",
+   "when": {
+    "flag": 332
+   }
+  },
+  {
+   "id": "ep_042",
+   "needs": [
+    "ep_041"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Event 108: board ship "
+  },
+  {
+   "id": "ep_043",
+   "needs": [
+    "ep_042"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Event 1861: trigger Steamship (25,23)",
+   "at": {
+    "map": 156,
+    "x": 25,
+    "y": 23
+   }
+  },
+  {
+   "id": "ep_044",
+   "needs": [
+    "ep_043"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Enter map 477 (entrance 476 (53,13))",
+   "when": {
+    "in_map": 477
+   }
+  },
+  {
+   "id": "ep_045",
+   "needs": [
+    "ep_044"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Enter map 478 (entrance 477 (47,26))",
+   "when": {
+    "in_map": 478
+   }
+  },
+  {
+   "id": "ep_046",
+   "needs": [
+    "ep_045"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Enter map 479 (entrance 478 (47,35))",
+   "when": {
+    "in_map": 479
+   }
+  },
+  {
+   "id": "ep_047",
+   "needs": [
+    "ep_046"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Enter map 480 (entrance 479 (12,45))",
+   "when": {
+    "in_map": 480
+   }
+  },
+  {
+   "id": "ep_048",
+   "needs": [
+    "ep_047"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Enter map 485 (entrance 480 (11,16))",
+   "when": {
+    "in_map": 485
+   }
+  },
+  {
+   "id": "ep_049",
+   "needs": [
+    "ep_048"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Enter Town of Mirage (entrance 485 (14,46))",
+   "when": {
+    "in_map": 481
+   }
+  },
+  {
+   "id": "ep_050",
+   "needs": [
+    "ep_049"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Enter map 489 (entrance 481 (50,28))",
+   "when": {
+    "in_map": 489
+   }
+  },
+  {
+   "id": "ep_051",
+   "needs": [
+    "ep_050"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Enter Castle Tycoon (entrance 0 (183,132))",
+   "when": {
+    "in_map": 72
+   }
+  },
+  {
+   "id": "ep_052",
+   "needs": [
+    "ep_051"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Enter 0F (entrance 72 (32,23))",
+   "when": {
+    "in_map": 73
+   }
+  },
+  {
+   "id": "ep_053",
+   "needs": [
+    "ep_052"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Event 854: trigger 0F (33,47) (sets flag 257)",
+   "when": {
+    "flag": 257
+   },
+   "at": {
+    "map": 73,
+    "x": 33,
+    "y": 47
+   }
+  },
+  {
+   "id": "ep_054",
+   "needs": [
+    "ep_053"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Event 1651: trigger map 489 (52,43)",
+   "at": {
+    "map": 489,
+    "x": 52,
+    "y": 43
+   }
+  },
+  {
+   "id": "ep_055",
+   "needs": [
+    "ep_054"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Enter map 491 (entrance 490 (54,54))",
+   "when": {
+    "in_map": 491
+   }
+  },
+  {
+   "id": "ep_056",
+   "needs": [
+    "ep_055"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Enter map 492 (entrance 491 (26,12))",
+   "when": {
+    "in_map": 492
+   }
+  },
+  {
+   "id": "ep_057",
+   "needs": [
+    "ep_056"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Enter map 493 (entrance 492 (44,55))",
+   "when": {
+    "in_map": 493
+   }
+  },
+  {
+   "id": "ep_058",
+   "needs": [
+    "ep_057"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Event 1677: NPC map 493 (57,34) (sets flag 369) [battle 54]",
+   "when": {
+    "flag": 369
+   },
+   "at": {
+    "map": 493,
+    "x": 57,
+    "y": 34
+   }
+  },
+  {
+   "id": "ep_059",
+   "needs": [
+    "ep_058"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Event 1656: trigger map 493 (56,40)",
+   "at": {
+    "map": 493,
+    "x": 56,
+    "y": 40
+   }
+  },
+  {
+   "id": "ep_060",
+   "needs": [
+    "ep_059"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Enter map 495 (entrance 494 (28,21))",
+   "when": {
+    "in_map": 495
+   }
+  },
+  {
+   "id": "ep_061",
+   "needs": [
+    "ep_060"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Enter 0F (entrance 495 (22,50))",
+   "when": {
+    "in_map": 498
+   }
+  },
+  {
+   "id": "ep_062",
+   "needs": [
+    "ep_061"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Enter map 496 (entrance 498 (41,59))",
+   "when": {
+    "in_map": 496
+   }
+  },
+  {
+   "id": "ep_063",
+   "needs": [
+    "ep_062"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Enter 2F (entrance 496 (22,43))",
+   "when": {
+    "in_map": 502
+   }
+  },
+  {
+   "id": "ep_064",
+   "needs": [
+    "ep_063"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Enter 3F (entrance 502 (45,11))",
+   "when": {
+    "in_map": 503
+   }
+  },
+  {
+   "id": "ep_065",
+   "needs": [
+    "ep_064"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Enter map 497 (entrance 503 (23,47))",
+   "when": {
+    "in_map": 497
+   }
+  },
+  {
+   "id": "ep_066",
+   "needs": [
+    "ep_065"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Event 1686: trigger map 497 (22,11) (sets flag 508)",
+   "when": {
+    "flag": 508
+   },
+   "at": {
+    "map": 497,
+    "x": 22,
+    "y": 11
+   }
+  },
+  {
+   "id": "ep_067",
+   "needs": [
+    "ep_066"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Event 1688: trigger map 505 (58,25) (sets flag 508)",
+   "when": {
+    "flag": 508
+   },
+   "at": {
+    "map": 505,
+    "x": 58,
+    "y": 25
+   }
+  },
+  {
+   "id": "ep_068",
+   "needs": [
+    "ep_067"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Event 1690: trigger map 506 (28,8) (sets flag 508)",
+   "when": {
+    "flag": 508
+   },
+   "at": {
+    "map": 506,
+    "x": 28,
+    "y": 8
+   }
+  },
+  {
+   "id": "ep_069",
+   "needs": [
+    "ep_068"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Event 848: trigger Castle Tycoon (32,25) (sets flag 256)",
+   "when": {
+    "flag": 256
+   },
+   "at": {
+    "map": 72,
+    "x": 32,
+    "y": 25
+   }
+  },
+  {
+   "id": "ep_070",
+   "needs": [
+    "ep_069"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Event 707: trigger Ship Graveyard (17,32) (sets flag 508)",
+   "when": {
+    "flag": 508
+   },
+   "at": {
+    "map": 43,
+    "x": 17,
+    "y": 32
+   }
+  },
+  {
+   "id": "ep_071",
+   "needs": [
+    "ep_070"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Event 1692: trigger map 507 (23,11) (sets flag 508)",
+   "when": {
+    "flag": 508
+   },
+   "at": {
+    "map": 507,
+    "x": 23,
+    "y": 11
+   }
+  },
+  {
+   "id": "ep_072",
+   "needs": [
+    "ep_071"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Event 1694: trigger map 508 (50,34) (sets flag 508)",
+   "when": {
+    "flag": 508
+   },
+   "at": {
+    "map": 508,
+    "x": 50,
+    "y": 34
+   }
+  },
+  {
+   "id": "ep_073",
+   "needs": [
+    "ep_072"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Event 1827: trigger map 509 (30,20) (sets flag 415)",
+   "when": {
+    "flag": 415
+   },
+   "at": {
+    "map": 509,
+    "x": 30,
+    "y": 20
+   }
+  },
+  {
+   "id": "ep_074",
+   "needs": [
+    "ep_073"
+   ],
+   "verified": false,
+   "source": "event_path",
+   "title": "Event 1924: trigger map 509 (30,18) (sets flag 261) [battle 58]",
+   "when": {
+    "flag": 261
+   },
+   "at": {
+    "map": 509,
+    "x": 30,
+    "y": 18
+   }
+  }
+ ],
+ "guide_goals": [
   {
    "id": "meteor_site",
    "title": "Walk into the crater at Tycoon and watch the meteor scene",
