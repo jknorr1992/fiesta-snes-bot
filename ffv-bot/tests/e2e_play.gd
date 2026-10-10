@@ -10,6 +10,10 @@ func _initialize() -> void:
 	ra.open(); pad.open(); await ra.autodetect()
 	var nav := FFVNav.new(ra, pad, self)
 	var battle := FFVBattle.new(ra, pad, self)
+	if (await ra.read_u8(FFVRam.IN_LOCAL_MAP)) == 0:
+		nav.world_entrances = {157: true}
+		await nav.goto_world(Vector2i(175, 142), 20)
+		await create_timer(2.0).timeout
 	var prev := await FFVGameState.read(ra)
 	var base_flags := prev.event_flags.duplicate()
 	for round in int(OS.get_environment("ROUNDS") if OS.has_environment("ROUNDS") else "20"):

@@ -283,6 +283,7 @@ func _plan_world(band: PackedByteArray, start: Vector2i, goal: Vector2i) -> Arra
 ## Local-map frontier exploration: repeatedly walk to the nearest reachable tile that has not been visited yet,
 ## preferring tiles whose id is still unknown. Stops on a map change or battle. Returns the reason.
 var visited := {}  # Vector2i -> true, for the current map
+var _visited_map := -1
 var local_bumps := {}  # tile id -> failed local-map attempts
 
 
@@ -310,7 +311,9 @@ func _nearest_unvisited(tiles: PackedByteArray, start: Vector2i) -> Vector2i:
 
 func explore(max_goals := 40) -> String:
 	var map0 := await ra.read_u8(FFVRam.MAP_ID)
-	visited.clear()
+	if map0 != _visited_map:
+		visited.clear()  # kept across calls on the same map so repeated runs keep making progress
+		_visited_map = map0
 	for g in max_goals:
 		var cur := await position()
 		visited[cur] = true

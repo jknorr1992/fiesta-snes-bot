@@ -11,10 +11,26 @@
   },
   {
    "id": "first_battle",
-   "title": "Win the first battle (2 Goblins)",
+   "title": "Fight the goblins in the meteor forest and name your character",
    "verified": true,
    "needs": [
     "meteor_site"
+   ]
+  },
+  {
+   "id": "reach_galuf",
+   "title": "Reach Galuf at the meteor site",
+   "verified": true,
+   "needs": [
+    "first_battle"
+   ]
+  },
+  {
+   "id": "leave_forest",
+   "title": "Leave the forest back the way you came (the entry tile)",
+   "verified": true,
+   "needs": [
+    "reach_galuf"
    ]
   },
   {
@@ -23,7 +39,7 @@
    "job_select": true,
    "verified": false,
    "needs": [
-    "first_battle"
+    "leave_forest"
    ]
   },
   {
