@@ -28,6 +28,6 @@ func run(max_presses := 400) -> String:
 					alive = true
 			if not alive:
 				return "lost"
-		await pad.tap("A", 4)
-		await tree.create_timer(0.5).timeout
+		await pad.tap("A", 3)
+		await tree.create_timer(0.2).timeout
 	return "timeout"

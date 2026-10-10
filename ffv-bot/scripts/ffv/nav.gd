@@ -14,6 +14,9 @@ var pad: VirtualPad
 var known := {12: true, 37: true, 39: true, 69: true, 70: true, 98: true, 108: true,
 		38: false, 47: false, 53: false, 54: false, 55: false, 206: false, 207: false, 208: false}
 var step_frames := 8
+var cell_blocked := {}  ## Vector2i -> failed attempts on the current map (same tile id can be open elsewhere)
+var _cell_map := -1
+var verbose := false  ## print each held run (debugging)
 var tree: SceneTree
 
 
@@ -38,6 +41,8 @@ func _tile(tiles: PackedByteArray, p: Vector2i) -> int:
 
 func _cost(tiles: PackedByteArray, p: Vector2i) -> int:
 	if p.x < 0 or p.y < 0 or p.x >= FFVRam.TILE_MAP_SIZE or p.y >= FFVRam.TILE_MAP_SIZE:
+		return -1
+	if int(cell_blocked.get(p, 0)) >= 2:
 		return -1
 	var k = known.get(_tile(tiles, p), null)
 	if k == false:
@@ -99,8 +104,8 @@ func dialog_open() -> bool:
 func clear_dialog(max_presses := 30) -> int:
 	var n := 0
 	while n < max_presses and await dialog_open():
-		await _press("A", 4)
-		await tree.create_timer(0.4).timeout
+		await pad.tap("A", 3)
+		await tree.create_timer(0.1).timeout
 		n += 1
 	return n
 
@@ -108,20 +113,63 @@ func clear_dialog(max_presses := 30) -> int:
 ## Talk to whatever stands next to us in `dir`: turn towards it (the move is blocked), then press A.
 ## Returns true if a dialog opened.
 func interact(dir: String) -> bool:
-	await pad.tap(dir, 8)
-	await tree.create_timer(0.5).timeout
-	await pad.tap("A", 8)
-	await tree.create_timer(0.8).timeout
+	await pad.tap(dir, 4)
+	await tree.create_timer(0.2).timeout
+	await pad.tap("A", 4)
+	await tree.create_timer(0.4).timeout
 	return await dialog_open()
 
 
 func _press(dir: String, frames: int) -> void:
 	await pad.tap(dir, frames)
-	await tree.create_timer(0.2).timeout
+	await tree.create_timer(0.1).timeout
+
+
+## Hold the direction buttons along `path` (at most `max_steps` steps) and poll the position every frame the
+## emulator answers (~50 Hz). The position register changes as a step begins, so the next direction can be
+## switched in time and the character keeps walking without pauses. Returns {done, pos, status} with status
+## "ok", "blocked" (no movement for `stall_ms`) or "moved" (the position jumped somewhere unexpected).
+func hold_run(path: Array[String], max_steps := 12, stall_ms := 280) -> Dictionary:
+	var cur := await position()
+	var n := mini(path.size(), max_steps)
+	var done := 0
+	var held := ""
+	var status := "ok"
+	var last_change := Time.get_ticks_msec()
+	while done < n:
+		var d := path[done]
+		if held != d:
+			if held != "":
+				pad.set_button(held, false)
+			pad.set_button(d, true)
+			held = d
+		var p := await position()
+		if p.x < 0:
+			status = "moved"
+			break
+		if p != cur:
+			if p - cur == DIRS[d]:
+				done += 1
+				last_change = Time.get_ticks_msec()
+			else:
+				status = "moved"
+				cur = p
+				break
+			cur = p
+		elif Time.get_ticks_msec() - last_change > stall_ms:
+			status = "blocked"
+			break
+	if held != "":
+		pad.set_button(held, false)
+	return {"done": done, "pos": cur, "status": status}
 
 
 ## Walk to `goal`. Returns "ok", "no_path", "stuck", "map_changed" or "battle".
 func goto(goal: Vector2i, max_steps := 200) -> String:
+	var mid := await ra.read_u16(FFVRam.MAP_ID)
+	if mid != _cell_map:
+		cell_blocked.clear()
+		_cell_map = mid
 	var tiles := await read_tiles()
 	for i in max_steps:
 		var cur := await position()
@@ -129,8 +177,7 @@ func goto(goal: Vector2i, max_steps := 200) -> String:
 			return "ok"
 		if (await ra.read_u8(FFVRam.IN_BATTLE)) == 1:
 			return "battle"
-		if i % 6 == 0:
-			tiles = await read_tiles()
+		tiles = await read_tiles()  # one 4 KB read per run of up to 10 held steps
 		if await dialog_open():
 			await clear_dialog()
 			continue
@@ -140,27 +187,37 @@ func goto(goal: Vector2i, max_steps := 200) -> String:
 			path = plan(tiles, cur, goal)
 		if path.is_empty():
 			return "no_path"
-		var d := path[0]
-		var target: Vector2i = cur + DIRS[d]
-		var tid := _tile(tiles, target)
-		await _press(d, step_frames)
-		var now := await _settle(cur)
-		if now == cur and await dialog_open():
-			await clear_dialog()
-			continue  # an event interrupted the step; not evidence that the tile is blocked
-		if now == cur:
+		var r := await hold_run(path, 10)
+		if verbose:
+			print(Time.get_ticks_msec() % 100000, " goto run from ", cur, " path ", path.slice(0, 10), " -> ", r)
+		var now: Vector2i = r["pos"]
+		var tid_at := func(k: int) -> int:
+			var q := cur
+			for j in k:
+				q += DIRS[path[j]]
+			return _tile(tiles, q + DIRS[path[k]])
+		for k in int(r["done"]):
+			known[tid_at.call(k)] = true  # walking onto a tile once proves it passable (ledges aside)
+		if r["status"] == "moved":
+			if absi(now.x - cur.x) + absi(now.y - cur.y) > 12:
+				return "map_changed"
+			continue
+		if r["status"] == "blocked":
+			var k: int = r["done"]
+			if await dialog_open():
+				await clear_dialog()
+				continue  # an event interrupted the step; not evidence that the tile is blocked
+			var tid: int = tid_at.call(k)
 			await _press("A", 4)  # a dialog may be eating the input
-			await tree.create_timer(0.6).timeout
-			await _press(d, step_frames)
-			now = await _settle(cur)
-		if now == cur:
+			await tree.create_timer(0.3).timeout
+			if await dialog_open():
+				await clear_dialog()
+				continue
+			var tcell: Vector2i = now + DIRS[path[k]]
+			cell_blocked[tcell] = int(cell_blocked.get(tcell, 0)) + 1
 			local_bumps[tid] = int(local_bumps.get(tid, 0)) + 1
 			if known.get(tid, null) != true and int(local_bumps[tid]) >= 2:
 				known[tid] = false  # two failed attempts and never walked onto: treat as blocked
-		else:
-			known[tid] = true  # walking onto a tile once proves it passable (ledges aside)
-			if absi(now.x - cur.x) + absi(now.y - cur.y) > 2:
-				return "map_changed"
 	return "stuck"
 
 
@@ -240,18 +297,20 @@ func goto_world(goal: Vector2i, max_steps := 400) -> String:
 		var path := _plan_world(band, cur, goal)
 		if path.is_empty():
 			return "no_path"
-		var d := path[0]
-		var target: Vector2i = cur + DIRS[d]
-		var tid := _wtile(band, target) if (not rom_map.is_empty() or absi(target.y - cur.y) <= 28) else -1
-		last_tid = tid
-		var now := await _step_world(d)
-		if tid >= 0:
-			if now == cur:
-				bumps[tid] = int(bumps.get(tid, 0)) + 1
-				if int(bumps[tid]) >= 3 and world_known.get(tid, null) != true:
-					world_known[tid] = false
-			else:
-				world_known[tid] = true
+		var r := await hold_run(path, 12)
+		var q := cur
+		for k in int(r["done"]):
+			q += DIRS[path[k]]
+			world_known[_wtile(band, q)] = true
+		if r["status"] == "blocked":
+			var k: int = r["done"]
+			var tid := _wtile(band, q + DIRS[path[k]])
+			last_tid = tid
+			bumps[tid] = int(bumps.get(tid, 0)) + 1
+			if int(bumps[tid]) >= 3 and world_known.get(tid, null) != true:
+				world_known[tid] = false
+		elif r["status"] == "moved":
+			last_tid = _wtile(band, q + DIRS[path[mini(int(r["done"]), path.size() - 1)]])  # the tile that carried us away (entrance?)
 	return "stuck"
 
 

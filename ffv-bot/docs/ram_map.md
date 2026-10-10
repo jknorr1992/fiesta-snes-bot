@@ -66,3 +66,7 @@ Note: FFVRam.MAP_ID is now $0AD4 (u16). The old "$0B4F map id 26/27" entries abo
 
 ## Correction: opening forest flow (verified by replaying from the new-game state)
 Crater -> Boco event -> walk to (27,21) (goblin battle, flag 306) -> name entry -> Lenna/Galuf scene at (46,13): flag 16 set, then exit (9,25) -> world (175,143). (39,15) -> map 123 is a much later return, not part of the opening, so flags 70/71 do not gate Galuf. The scanner's "sets" lists miss flags set through chained events (flag 16 shows only on map 208 but is set by the 477/478 chain). On the world map the pocket around (175,143) is 324 walkable tiles with entrances (183,132)/(184,132) -> map 72 on tiles whose low property nibble is D; pathing must treat the goal tile as enterable.
+
+## Movement timing (measured on the testbed)
+Holding a d-pad direction moves one tile per ~9 frames (~160 ms) on local and world maps; the position register ($0AD8/$0AD9) changes as a step begins. A READ_CORE_RAM round trip is ~19 ms (RetroArch answers network commands once per frame, so ~50-60 Hz is the ceiling). FFVNav.hold_run holds the buttons and polls the position, switching direction as soon as the next tile registers; the old tap-and-wait stepping took ~600-700 ms per tile.
+World trigger (175,142) enters the forest unless flag 71 is set (event 37); (156,139) needs flag 16 set and 17 clear (event 45).
