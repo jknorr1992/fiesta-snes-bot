@@ -31,7 +31,11 @@
    "verified": true,
    "needs": [
     "reach_galuf"
-   ]
+   ],
+   "when": {
+    "flag": 306
+   },
+   "note": "Flag 306 (set by event 44) differs between the new-game state and the world checkpoint after leaving the forest."
   },
   {
    "id": "choose_jobs",
