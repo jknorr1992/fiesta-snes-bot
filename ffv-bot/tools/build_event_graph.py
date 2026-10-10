@@ -9,7 +9,7 @@ from event_scripts import scan
 def main(rom_path, out):
     rom = open(rom_path, "rb").read()
     graph = []
-    for m in range(512):
+    for m in range(511):
         for x, y, t in triggers(rom, m):
             for conds, ev in trigger_script(rom, t):
                 if ev >= 1940:

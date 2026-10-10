@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Decode FFV trigger scripts (conditions that gate field events) from the ROM.
-Layout (everything8215/ff5 disassembly): event triggers at 0xE2800 (4 bytes: x, y, trigger-script index; pointers
-u16 at 0xE2400 per map), trigger scripts at 0x18E080 + u16 pointer (704 items). A script is a list of condition
+Layout (everything8215/ff5 disassembly): event triggers (4 bytes: x, y, trigger-script index) at 0xE2400 + u16 pointer (the pointer table at 0xE2400 itself, relative offsets), trigger scripts at 0x18E080 + u16 pointer (704 items). A script is a list of condition
 groups; each group ends with 0xFF + u16 event index, which runs only if every condition before it holds.
 Conditions: FE f flag f(0-255) set | FD clear | FC f flag 256+f set | FB clear | FA addr,cmp,val | F9 | F8 | F7 dir | F6 A-button.
 Usage: event_conditions.py <rom.sfc> [map_id ...]
@@ -37,8 +36,8 @@ def trigger_script(rom, idx):
     return groups
 
 def triggers(rom, m):
-    a, b = u16(rom, 0xE2400 + 2 * m), u16(rom, 0xE2400 + 2 * (m + 1))
-    return [(rom[0xE2800 + i], rom[0xE2800 + i + 1], u16(rom, 0xE2800 + i + 2)) for i in range(a, b, 4)]
+    a, b = u16(rom, 0xE2400 + 2 * m), u16(rom, 0xE2400 + 2 * (m + 1))  # pointers are relative to the table start
+    return [(rom[0xE2400 + i], rom[0xE2400 + i + 1], u16(rom, 0xE2400 + i + 2)) for i in range(a, b, 4)]
 
 if __name__ == "__main__":
     rom = open(sys.argv[1], "rb").read()
