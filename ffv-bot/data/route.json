@@ -1,12 +1,430 @@
 {
-  "_note": "DRAFT route. Goals marked verified:false come from general FFV knowledge and still need confirming on the test bed. 'when' is a RAM-checkable condition; goals without one are confirmed manually in the advisor until a story flag is mapped.",
-  "goals": [
-    {"id": "meteor_site", "title": "Walk into the crater at Tycoon and watch the meteor scene", "when": {"in_map": 27}, "verified": true},
-    {"id": "first_battle", "title": "Win the first battle (2 Goblins)", "verified": true, "needs": ["meteor_site"]},
-    {"id": "choose_jobs", "title": "Set the party's jobs", "job_select": true, "verified": false, "needs": ["first_battle"]},
-    {"id": "tule", "title": "Reach Tule and the Wind Shrine", "verified": false, "needs": ["choose_jobs"]},
-    {"id": "levels_5", "title": "Get everyone to level 5 on the way", "when": {"min_level_all": 5}, "verified": false, "needs": ["tule"],
-      "bottleneck": true, "safety": "Do not grind past what the next fight needs."},
-    {"id": "gil_1000", "title": "Have 1000 Gil for equipment", "when": {"min_gil": 1000}, "verified": false, "needs": ["levels_5"]}
-  ]
+ "_note": "Route skeleton from the user's Game guide.txt (ffv-bot-notes/game-guide.txt). Goals marked verified:false have no RAM condition yet; event flags are mapped as the story is played. 'when' is RAM-checkable (map id, flag, gil, levels).",
+ "goals": [
+  {
+   "id": "meteor_site",
+   "title": "Walk into the crater at Tycoon and watch the meteor scene",
+   "when": {
+    "in_map": 27
+   },
+   "verified": true
+  },
+  {
+   "id": "first_battle",
+   "title": "Win the first battle (2 Goblins)",
+   "verified": true,
+   "needs": [
+    "meteor_site"
+   ]
+  },
+  {
+   "id": "choose_jobs",
+   "title": "Set the party's jobs",
+   "job_select": true,
+   "verified": false,
+   "needs": [
+    "first_battle"
+   ]
+  },
+  {
+   "id": "levels_5",
+   "title": "Get everyone to level 5 on the way",
+   "when": {
+    "min_level_all": 5
+   },
+   "verified": false,
+   "needs": [
+    "choose_jobs"
+   ],
+   "bottleneck": true,
+   "safety": "Do not grind past what the next fight needs."
+  },
+  {
+   "id": "w1_02_pirates_hideout",
+   "title": "Pirates' Hideout: Encounter Faris and commandeer the pirate ship.",
+   "world": 1,
+   "verified": false,
+   "needs": [
+    "choose_jobs"
+   ]
+  },
+  {
+   "id": "w1_03_town_of_tule",
+   "title": "Town of Tule: Obtain the canal key from Zok.",
+   "world": 1,
+   "verified": false,
+   "needs": [
+    "w1_02_pirates_hideout"
+   ]
+  },
+  {
+   "id": "w1_04_wind_shrine",
+   "title": "Wind Shrine: Defeat the Wing Raptor, witness the Wind Crystal shatter, and unlock the first job classes.",
+   "world": 1,
+   "verified": false,
+   "needs": [
+    "w1_03_town_of_tule"
+   ]
+  },
+  {
+   "id": "w1_05_torna_canal",
+   "title": "Torna Canal: Defeat Karlabos; Syldra is pulled into the whirlpool.",
+   "world": 1,
+   "verified": false,
+   "needs": [
+    "w1_04_wind_shrine"
+   ]
+  },
+  {
+   "id": "w1_06_ship_graveyard",
+   "title": "Ship Graveyard: Navigate the sunken wreckage and defeat Siren.",
+   "world": 1,
+   "verified": false,
+   "needs": [
+    "w1_05_torna_canal"
+   ]
+  },
+  {
+   "id": "w1_07_town_of_carwen_north_mountai",
+   "title": "Town of Carwen & North Mountain: Ascend the peak, defeat Magissa and Forza, and acquire the Hiryu (Wind Drake).",
+   "world": 1,
+   "verified": false,
+   "needs": [
+    "w1_06_ship_graveyard"
+   ]
+  },
+  {
+   "id": "w1_08_castle_town_of_walse",
+   "title": "Castle & Town of Walse: Speak with King Walse regarding the Water Crystal.",
+   "world": 1,
+   "verified": false,
+   "needs": [
+    "w1_07_town_of_carwen_north_mountai"
+   ]
+  },
+  {
+   "id": "w1_09_walse_tower",
+   "title": "Walse Tower: Climb the tower to confront Garula; the Water Crystal shatters.",
+   "world": 1,
+   "verified": false,
+   "needs": [
+    "w1_08_castle_town_of_walse"
+   ]
+  },
+  {
+   "id": "w1_10_walse_meteorite",
+   "title": "Walse Meteorite: Enter the warp point to travel to the Karnak region.",
+   "world": 1,
+   "verified": false,
+   "needs": [
+    "w1_09_walse_tower"
+   ]
+  },
+  {
+   "id": "w1_11_town_castle_of_karnak",
+   "title": "Town & Castle of Karnak: Jailed upon arrival; break out alongside Cid.",
+   "world": 1,
+   "verified": false,
+   "needs": [
+    "w1_10_walse_meteorite"
+   ]
+  },
+  {
+   "id": "w1_12_fire_powered_ship",
+   "title": "Fire-Powered Ship: Traverse the boiler rooms and defeat Liquid Flame.",
+   "world": 1,
+   "verified": false,
+   "needs": [
+    "w1_11_town_castle_of_karnak"
+   ]
+  },
+  {
+   "id": "w1_13_castle_karnak_escape",
+   "title": "Castle Karnak (Escape): Complete the 10-minute timed escape as the Fire Crystal and castle explode.",
+   "world": 1,
+   "verified": false,
+   "needs": [
+    "w1_12_fire_powered_ship"
+   ]
+  },
+  {
+   "id": "w1_14_library_of_the_ancients",
+   "title": "Library of the Ancients: Defeat Ifrit and Byblos to rescue Mid and restore the Fire-Powered Ship.",
+   "world": 1,
+   "verified": false,
+   "needs": [
+    "w1_13_castle_karnak_escape"
+   ]
+  },
+  {
+   "id": "w1_15_town_of_crescent_black_choco",
+   "title": "Town of Crescent & Black Chocobo Forest: Lose the ship to a whirlpool, find the Black Chocobo, and gain flight.",
+   "world": 1,
+   "verified": false,
+   "needs": [
+    "w1_14_library_of_the_ancients"
+   ]
+  },
+  {
+   "id": "w1_16_desert_of_shifting_sands",
+   "title": "Desert of Shifting Sands: Defeat the Sandworm and traverse the sand currents.",
+   "world": 1,
+   "verified": false,
+   "needs": [
+    "w1_15_town_of_crescent_black_choco"
+   ]
+  },
+  {
+   "id": "w1_17_gohn_town_of_ruin",
+   "title": "Gohn (Town of Ruin): Track King Tycoon into the underground passages; the Earth Crystal site rises into the sky.",
+   "world": 1,
+   "verified": false,
+   "needs": [
+    "w1_16_desert_of_shifting_sands"
+   ]
+  },
+  {
+   "id": "w1_18_crescent_island_catapult",
+   "title": "Crescent Island Catapult: Upgrade the ship into a flying airship.",
+   "world": 1,
+   "verified": false,
+   "needs": [
+    "w1_17_gohn_town_of_ruin"
+   ]
+  },
+  {
+   "id": "w1_19_ronka_meteorites_tycoon_wals",
+   "title": "Ronka Meteorites (Tycoon, Walse, Karnak, Gohn): Defeat the Adamantoise and charge the airship for high-altitude flight.",
+   "world": 1,
+   "verified": false,
+   "needs": [
+    "w1_18_crescent_island_catapult"
+   ]
+  },
+  {
+   "id": "w1_20_flying_ronka_ruins",
+   "title": "Flying Ronka Ruins: Destroy the fortress turrets, scale the ruins, defeat Archeoaevis, and witness the release of Exdeath.",
+   "world": 1,
+   "verified": false,
+   "needs": [
+    "w1_19_ronka_meteorites_tycoon_wals"
+   ]
+  },
+  {
+   "id": "w1_21_tycoon_meteorite",
+   "title": "Tycoon Meteorite: Return to activate the warp gate to Galuf's world.",
+   "world": 1,
+   "verified": false,
+   "needs": [
+    "w1_20_flying_ronka_ruins"
+   ]
+  },
+  {
+   "id": "w2_01_solitary_island_castle_exdea",
+   "title": "Solitary Island & Castle Exdeath (Dungeon): Party is captured; Galuf infiltrates the castle solo to rescue them.",
+   "world": 2,
+   "verified": false,
+   "needs": [
+    "w1_21_tycoon_meteorite"
+   ]
+  },
+  {
+   "id": "w2_02_big_bridge",
+   "title": "Big Bridge: Battle across the bridge and defeat Gilgamesh before the barrier repels the party.",
+   "world": 2,
+   "verified": false,
+   "needs": [
+    "w2_01_solitary_island_castle_exdea"
+   ]
+  },
+  {
+   "id": "w2_03_town_of_regole",
+   "title": "Town of Regole: Rest and resupply in the southern territory.",
+   "world": 2,
+   "verified": false,
+   "needs": [
+    "w2_02_big_bridge"
+   ]
+  },
+  {
+   "id": "w2_04_kuza_the_sealed_castle",
+   "title": "Kuza, the Sealed Castle: Pass through the hall housing the 12 Legendary Weapons.",
+   "world": 2,
+   "verified": false,
+   "needs": [
+    "w2_03_town_of_regole"
+   ]
+  },
+  {
+   "id": "w2_05_underground_waterway_moogle_",
+   "title": "Underground Waterway & Moogle Village: Escort a stranded Moogle through subterranean tunnels to reach its village.",
+   "world": 2,
+   "verified": false,
+   "needs": [
+    "w2_04_kuza_the_sealed_castle"
+   ]
+  },
+  {
+   "id": "w2_06_castle_of_bal",
+   "title": "Castle of Bal: Rejoin Galuf's soldiers and gain access to the kingdom.",
+   "world": 2,
+   "verified": false,
+   "needs": [
+    "w2_05_underground_waterway_moogle_"
+   ]
+  },
+  {
+   "id": "w2_07_town_of_quelb",
+   "title": "Town of Quelb: Pass through the werewolf settlement after meeting Kelger.",
+   "world": 2,
+   "verified": false,
+   "needs": [
+    "w2_06_castle_of_bal"
+   ]
+  },
+  {
+   "id": "w2_08_drakenvale_valley_of_dragons",
+   "title": "Drakenvale (Valley of Dragons): Ascend the mountain to retrieve Dragon Grass to heal Bal's dying Wind Drake.",
+   "world": 2,
+   "verified": false,
+   "needs": [
+    "w2_07_town_of_quelb"
+   ]
+  },
+  {
+   "id": "w2_09_surgate_castle_zeza_s_fleet",
+   "title": "Surgate Castle & Zeza's Fleet: Coordinate with King Zeza aboard his flagship to stage an assault on Exdeath's barrier.",
+   "world": 2,
+   "verified": false,
+   "needs": [
+    "w2_08_drakenvale_valley_of_dragons"
+   ]
+  },
+  {
+   "id": "w2_10_barrier_tower",
+   "title": "Barrier Tower: Scale the tower and defeat Atomos to disable the barrier shielding Castle Exdeath.",
+   "world": 2,
+   "verified": false,
+   "needs": [
+    "w2_09_surgate_castle_zeza_s_fleet"
+   ]
+  },
+  {
+   "id": "w2_11_submarine_trenches_ghido_s_c",
+   "title": "Submarine Trenches & Ghido's Cave: Navigate underwater passages to consult Sage Ghido.",
+   "world": 2,
+   "verified": false,
+   "needs": [
+    "w2_10_barrier_tower"
+   ]
+  },
+  {
+   "id": "w2_12_town_of_moore_great_forest_o",
+   "title": "Town of Moore & Great Forest of Moore: Burn through the forest using the Elder Tree branch, defeat the Crystal Guardians, and witness Galuf's final stand against Exdeath.",
+   "world": 2,
+   "verified": false,
+   "needs": [
+    "w2_11_submarine_trenches_ghido_s_c"
+   ]
+  },
+  {
+   "id": "w2_13_castle_exdeath",
+   "title": "Castle Exdeath: Dispel the illusion via Kelger's sacrifice, climb to the summit, defeat Gilgamesh, and defeat Exdeath.",
+   "world": 2,
+   "verified": false,
+   "needs": [
+    "w2_12_town_of_moore_great_forest_o"
+   ]
+  },
+  {
+   "id": "w3_01_castle_tycoon",
+   "title": "Castle Tycoon: Celebrate after returning, right before the castle is swallowed by the Void.",
+   "world": 3,
+   "verified": false,
+   "needs": [
+    "w2_13_castle_exdeath"
+   ]
+  },
+  {
+   "id": "w3_02_antlion_s_den",
+   "title": "Antlion's Den: Rescue Faris and Boko from the cavern sinkhole.",
+   "world": 3,
+   "verified": false,
+   "needs": [
+    "w3_01_castle_tycoon"
+   ]
+  },
+  {
+   "id": "w3_03_pyramid_of_moore",
+   "title": "Pyramid of Moore: Navigate ancient traps and defeat Gargoyles to retrieve the **First Tablet**.",
+   "world": 3,
+   "verified": false,
+   "needs": [
+    "w3_02_antlion_s_den"
+   ]
+  },
+  {
+   "id": "w3_04_guardian_tree_forest_of_moor",
+   "title": "Guardian Tree (Forest of Moore): Confront Exdeath, watch Tycoon disappear, and obtain the combined airship/submarine.",
+   "world": 3,
+   "verified": false,
+   "needs": [
+    "w3_03_pyramid_of_moore"
+   ]
+  },
+  {
+   "id": "w3_05_kuza_the_sealed_castle",
+   "title": "Kuza, the Sealed Castle: Exchange the First Tablet to unseal the first 3 Legendary Weapons.",
+   "world": 3,
+   "verified": false,
+   "needs": [
+    "w3_04_guardian_tree_forest_of_moor"
+   ]
+  },
+  {
+   "id": "w3_06_island_shrine",
+   "title": "Island Shrine: Scale the air ducts to obtain the **Second Tablet** and unlock Syldra.",
+   "world": 3,
+   "verified": false,
+   "needs": [
+    "w3_05_kuza_the_sealed_castle"
+   ]
+  },
+  {
+   "id": "w3_07_fork_tower",
+   "title": "Fork Tower: Split into physical (Minotaur) and magic (Omniscient) teams to dispel the barrier guarding Flare and Holy.",
+   "world": 3,
+   "verified": false,
+   "needs": [
+    "w3_06_island_shrine"
+   ]
+  },
+  {
+   "id": "w3_08_great_sea_trench",
+   "title": "Great Sea Trench: Dive underwater with the submarine to claim the **Third Tablet** and Meteor.",
+   "world": 3,
+   "verified": false,
+   "needs": [
+    "w3_07_fork_tower"
+   ]
+  },
+  {
+   "id": "w3_09_istory_falls",
+   "title": "Istory Falls: Navigate the subterranean waterfall to claim the **Fourth Tablet** and Leviathan.",
+   "world": 3,
+   "verified": false,
+   "needs": [
+    "w3_08_great_sea_trench"
+   ]
+  },
+  {
+   "id": "w3_10_kuza_the_sealed_castle",
+   "title": "Kuza, the Sealed Castle: Return to unseal the remaining 9 Legendary Weapons.",
+   "world": 3,
+   "verified": false,
+   "needs": [
+    "w3_09_istory_falls"
+   ]
+  }
+ ]
 }
