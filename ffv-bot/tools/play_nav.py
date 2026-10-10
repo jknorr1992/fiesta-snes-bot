@@ -17,6 +17,9 @@ class Nav(Game):
         self.blocked = {}
         self.avoid = {}      # map -> set of tiles to path around (map entrances other than the goal)
         self.log = []
+        from event_vm import Rom
+        self._rom = Rom(rom_path)
+        self.rom_entrances = self._rom.entrances
 
     # ---- cheats ----
     def cheat_party(self):
@@ -44,6 +47,14 @@ class Nav(Game):
         return ((b[0] | b[1] << 8) & 0xFFF, b[4], b[5])
     def pos(self):
         m, x, y = self.fpos(); return m, x, y, self.u8(0xB53)
+    def cur_veh(self):
+        """Vehicle the party is riding: $0ADC flickers while moving, so match the party tile against the vehicle table
+        ($0ADD, 4 bytes each: flags, height, x, y; vehicle id = slot + 1)."""
+        m, x, y = self.fpos()
+        raw = self.read(0xADD, 24)
+        for i in range(6):
+            if raw[4 * i + 2] == x and raw[4 * i + 3] == y and (x, y) != (0, 0): return i + 1
+        return 0
     def stable(self, tries=6):
         last, n = None, 0
         for _ in range(40):
@@ -153,19 +164,27 @@ class Nav(Game):
         return path[::-1]
 
     def plan_world(self, w, veh, start, goal, mask):
+        """BFS over (tile, vehicle) states. The ship disembarks onto any walkable shore tile; the other vehicles use their landing rules."""
         mk = self.world.mod_key(w, mask)
         bl = self.blocked.setdefault((w, "w"), set())
-        q, prev = deque([start]), {start: None}
+        s0 = (start, veh or 0)
+        q, prev = deque([s0]), {s0: None}
+        end = None
         while q:
-            c = q.popleft()
-            if c == goal: break
+            st = q.popleft(); c, v = st
+            if c == goal: end = st; break
             for d, (dx, dy) in DIRS.items():
                 n = ((c[0] + dx) % 256, (c[1] + dy) % 256)
-                if n in prev or (c, d) in bl: continue
-                if n != goal and not self.world.passable(w, veh, n[0], n[1], mk) and not (veh and self.world.can_land(w, veh, n[0], n[1], mk) and self.world.passable(w, 0, n[0], n[1], mk)): continue   # vehicles disembark by moving onto a landing tile
-                prev[n] = (c, d); q.append(n)
-        if goal not in prev: return None
-        path, c = [], goal
+                if (c, d) in bl: continue
+                if v and self.world.passable(w, v, n[0], n[1], mk): nv = v
+                elif self.world.passable(w, 0, n[0], n[1], mk) and (v == 0 or v == 5 or self.world.can_land(w, v, n[0], n[1], mk)): nv = 0
+                elif n == goal: nv = v
+                else: continue
+                ns = (n, nv)
+                if ns in prev: continue
+                prev[ns] = (st, d); q.append(ns)
+        if end is None: return None
+        path, c = [], end
         while prev[c]: c, d = prev[c][0], prev[c][1]; path.append(d)
         return path[::-1]
 
@@ -184,11 +203,11 @@ class Nav(Game):
                 ids, props = self.local_grid()
                 path = self.plan_local((cx, cy), (x, y), ids, props, m)
             else:
-                v = veh if veh is not None else self.u8(0xADC)    # $0ADC = current vehicle (0 foot, 1 chocobo, ... as in world_model)
+                v = veh if veh is not None else self.cur_veh()    # $0ADC = current vehicle (0 foot, 1 chocobo, ... as in world_model)
                 path = self.plan_world(m, v, (cx, cy), (x, y), self.flags256() << 0)
             if not path:
                 nopath += 1
-                if nopath > 6: return "nopath"
+                if nopath > 6: return self.probe(x, y, m0) or "nopath"
                 self.settle(30); continue   # battle result screens and scripts leave the RAM grid unusable for a while
             for d in path[:12]:
                 moved, p = self.step(d)
@@ -208,13 +227,46 @@ class Nav(Game):
                             self.blocked.setdefault(m if local else (m, "w"), set()).add(((cx, cy), d)); stuck += 1
                     break
                 dx, dy = DIRS[d]
-                if not local and self.u8(0xADC) != v:
+                if not local and self.cur_veh() != v:
                     cx, cy = p[1], p[2]; break         # boarded or disembarked: replan with the new vehicle
                 if (p[1], p[2]) != (cx + dx, cy + dy) and local:
                     cx, cy = p[1], p[2]; break         # overshoot or a scripted move: replan from where we are
                 cx, cy = p[1], p[2]
             if stuck > 60: return "stuck"
         return "stuck"
+
+    def probe(self, x, y, m0, limit=40):
+        """Fallback when the grid says there is no path (tile properties can lie, e.g. before a scene rewrites the room):
+        feel toward the goal with real steps, preferring the longer axis. Returns 'arrived'/'mapchange' or None."""
+        for _ in range(limit):
+            if self.u8(0x18) == 1: self.fight()
+            if self.u8(0xB57): self.dialog()
+            m, cx, cy, local = self.pos()
+            if m != m0: return "mapchange"
+            if (cx, cy) == (x, y): return "arrived"
+            opts = []
+            if cx != x: opts.append(("RIGHT" if x > cx else "LEFT", abs(x - cx)))
+            if cy != y: opts.append(("DOWN" if y > cy else "UP", abs(y - cy)))
+            moved = False
+            for d, _n in sorted(opts, key=lambda o: -o[1]):
+                moved, p = self.step(d)
+                if p[0] != m0: return "mapchange"
+                if moved: break
+            if not moved: return None
+        return None
+
+    def leave_by_door(self, m0):
+        """Maps whose way out has no exit-tile property (e.g. Wind Shrine front room): walk to the tile the world entrance
+        drops you on, then keep walking outward (down, then the other directions) until the map changes."""
+        door = next((e for wm in (0, 1, 2) for e in self.rom_entrances(wm) if e["map"] == m0), None)
+        if not door: return None
+        if self.goto(door["dx"] & 0x3F, door["dy"] & 0x3F) == "mapchange": return "mapchange"
+        for d in ("DOWN", "LEFT", "RIGHT", "UP"):
+            for _ in range(3):
+                moved, p = self.step(d)
+                if p[0] != m0: return "mapchange"
+                if not moved: break
+        return None
 
     def exit_tiles(self, ids, props):
         """Map exit tiles (engine: tile properties byte 2 == 0 on a passable tile leaves to the parent map)."""
@@ -231,7 +283,7 @@ class Nav(Game):
             if m != m0: return "mapchange"
             ids, props = self.local_grid()
             path = self.plan_local((cx, cy), goals, ids, props, m0)
-            if not path: return "nopath"
+            if not path: return self.leave_by_door(m0) or "nopath"
             for d in path[:10]:
                 moved, p = self.step(d)
                 if p[0] != m0: return "mapchange"

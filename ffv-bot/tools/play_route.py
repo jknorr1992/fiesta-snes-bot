@@ -18,7 +18,8 @@ class Runner:
     def __init__(self):
         self.n = Nav(ROM); self.rom = Rom(ROM)
         self.steps = json.load(open(os.path.join(HERE, "..", "data", "event_path.json")))
-        self.veh = None; self.bad = set(); self._grids = {}
+        self.veh = None; self.bad = set(); self.tried_veh = set(); self._grids = {}
+        self.world_doors = {e['map'] & 0x1FF for wm in (0, 1, 2) for e in self.rom.entrances(wm)}
         self.maps = Maps(open(ROM, 'rb').read()); self._exits = {}
         for m in range(512):
             try: self.n.avoid[m] = {(e['x'], e['y']) for e in self.rom.entrances(m)}
@@ -55,7 +56,7 @@ class Runner:
 
     def reach_entrances(self, m, x, y):
         """Entrances of local map m that can be walked to from tile (x, y) (flood fill with the engine movement rule)."""
-        ids, props = self.grid_rom(m)
+        ids, props = self.n.local_grid() if self.n.pos()[:1] == (m,) else self.grid_rom(m)
         ents = {(e["x"], e["y"]): e for e in self.rom.entrances(m)}
         seen, st, hit = {(x, y)}, [(x, y)], []
         while st:
@@ -70,23 +71,28 @@ class Runner:
         return hit
 
     def route_maps(self, a, b):
-        """BFS over (map, arrival tile) nodes: local maps may hold several disconnected rooms."""
+        """Dijkstra over (map, arrival tile) nodes: local maps may hold several disconnected rooms. Entrances the tile
+        properties say are walkable cost 1; others (the property rule is not complete) cost 8 and are tried last."""
+        import heapq
         _, x0, y0, _l = self.n.pos()
         start = (a, x0, y0)
-        q, prev = deque([start]), {start: None}
-        while q:
-            node = q.popleft(); m, x, y = node
+        dist, prev, pq = {start: 0}, {start: None}, [(0, start)]
+        while pq:
+            d0, node = heapq.heappop(pq); m, x, y = node
+            if d0 > dist[node]: continue
             if m == b: break
             if m < 3:
-                outs = [(e, e["map"], e["dx"] & 0x3F, e["dy"] & 0x3F) for e in self.rom.entrances(m)]
+                outs = [(e, 1) for e in self.rom.entrances(m)]
             else:
-                outs = [(e, e["map"], e["dx"] & 0x3F, e["dy"] & 0x3F) for e in self.reach_entrances(m, x, y)]
-                if b < 3 and self.has_exit(m): outs.append(({"x": -1, "y": -1}, b, 0, 0))
-            for e, dm, dx, dy in outs:
+                good = {(e["x"], e["y"]) for e in self.reach_entrances(m, x, y)}
+                outs = [(e, 1 if (e["x"], e["y"]) in good else 8) for e in self.rom.entrances(m)]
+                if b < 3 and (self.has_exit(m) or m in self.world_doors): outs.append(({"x": -1, "y": -1, "map": b, "dx": 0, "dy": 0}, 1))
+            for e, w in outs:
                 if (m, e["x"], e["y"]) in self.bad: continue
-                nn = (dm, dx, dy) if dm >= 3 else (dm, 0, 0)
-                if dm == b: nn = (dm, dx, dy)
-                if nn not in prev: prev[nn] = (node, e["x"], e["y"]); q.append(nn)
+                dm = e["map"]
+                nn = (dm, e["dx"] & 0x3F, e["dy"] & 0x3F) if dm >= 3 or dm == b else (dm, 0, 0)
+                if nn not in dist or d0 + w < dist[nn]:
+                    dist[nn] = d0 + w; prev[nn] = (node, e["x"], e["y"]); heapq.heappush(pq, (dist[nn], nn))
         end = next((n for n in prev if n[0] == b), None)
         if end is None: return None
         path, c = [], end
@@ -107,9 +113,25 @@ class Runner:
                 res = self.n.leave_map(); self.say("  leave map", fm, res, self.n.pos()); self.n.dialog(); time.sleep(0.5); continue
             r = self.n.goto(x, y, self.veh)
             self.say("  entrance", fm, (x, y), "->", dm, r, self.n.pos())
+            if r == "nopath" and self.n.pos()[3] == 0 and self.board_vehicle(): continue    # reachable by boat/other vehicle
             if r == "nopath": self.bad.add((fm, x, y)); continue    # unreachable entrance on foot: try another route
             if r not in ("mapchange", "arrived"): return False
             self.n.dialog(); time.sleep(0.5)
+        return False
+
+    def board_vehicle(self):
+        """On the world map and on foot: walk to a parked vehicle (data at $0ADD, 4 bytes each: flags, height, x, y) and board it."""
+        if self.n.cur_veh(): return False
+        m = self.n.pos()[0]
+        for i in range(6):
+            b = self.n.read(0xADD + 4 * i, 4)
+            if (b[0] >> 5) != m and b[0] & 0xE0 != 0 or (b[2], b[3]) == (0, 0): continue
+            if b[0] & 0x1F == 0 and b[1] == 0x80: continue
+            if (i, b[2], b[3]) in self.tried_veh: continue
+            self.tried_veh.add((i, b[2], b[3]))
+            r = self.n.goto(b[2], b[3], 0)
+            self.say("  vehicle", i, (b[2], b[3]), r, "now on vehicle", self.n.cur_veh())
+            if self.n.cur_veh(): return True
         return False
 
     FACE = {0: (0, -1), 1: (1, 0), 2: (0, 1), 3: (-1, 0)}
@@ -146,6 +168,12 @@ class Runner:
             ok = True
             if s["kind"] == "event" and s["where"][0] == "trigger":
                 w = s["where"]; ok = self.do_trigger(w[1], w[2], w[3], s['event'])
+            elif s["kind"] == "event" and s["where"][0] == "board ship":
+                ok = self.go_map(0)
+                self.n.dialog(); self.n.release_all()
+                if ok and not self.n.cur_veh():
+                    self.tried_veh.clear(); ok = self.board_vehicle()
+                self.n.settle()
             elif s["kind"] == "entrance":
                 ok = self.go_map(s["to"][0])
             else:
