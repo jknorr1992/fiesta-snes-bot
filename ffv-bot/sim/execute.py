@@ -48,6 +48,9 @@ class Exec(Nav):
         while k < len(dirs):
             if k and dirs[k] != dirs[k - 1]: self.wait(24)
             moved, p = self.step(BTN[dirs[k]])
+            if self.u8(0x18) == 1 or (not moved and self.u8(0xB57)):       # random battle (or a message box): win it, then go on
+                self.fight(); [self.press('A', 3, 14) for _ in range(8)]; self.settle(); p = self.pos()
+                if (p[1], p[2]) == (tiles[k - 1] if k else (cx, cy)): continue     # battle came before the step: redo it
             if p[0] != m0: return k + 1, self.pos()
             cur = (p[1], p[2])
             j = next((i for i in range(k, min(k + 4, len(tiles))) if tiles[i] == cur), None)
