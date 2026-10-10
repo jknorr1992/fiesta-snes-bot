@@ -29,6 +29,10 @@ def scan(rom, idx):
         op = s[i]
         if op in (SET0, SET1) and i + 1 < len(s):
             sets.append(s[i + 1] + (256 if op == SET1 else 0))
+        elif op == 0xCA and i + 2 < len(s):  # set npc flag (bit 512 + n)
+            sets.append(512 + (s[i + 1] | s[i + 2] << 8))
+        elif op == 0xCB and i + 2 < len(s):  # clear npc flag
+            clears.append(512 + (s[i + 1] | s[i + 2] << 8))
         elif op in (CLR0, CLR1) and i + 1 < len(s):
             clears.append(s[i + 1] + (256 if op == CLR1 else 0))
         i += LEN.get(op, 1)

@@ -5,6 +5,7 @@ import json, os, sys
 sys.path.insert(0, os.path.dirname(__file__))
 from event_conditions import trigger_script, triggers
 from event_scripts import scan
+from npc_scripts import npcs, npc_script
 
 def main(rom_path, out):
     rom = open(rom_path, "rb").read()
@@ -17,6 +18,15 @@ def main(rom_path, out):
                 sets, clears, ok = scan(rom, ev)
                 graph.append({"map": m, "x": x, "y": y, "trigger": t, "needs_set": [c[1] for c in conds if c[0] == "flag_set"],
                               "needs_clear": [c[1] for c in conds if c[0] == "flag_clear"], "other_conds": [c for c in conds if c[0] not in ("flag_set", "flag_clear")],
+                              "event": ev, "sets": sets, "clears": clears, "script_ok": ok})
+    for m in range(511):
+        for n in npcs(rom, m):
+            for conds, ev in npc_script(rom, n[0]):
+                if ev >= 1940 or ev == 0:
+                    continue
+                sets, clears, ok = scan(rom, ev)
+                graph.append({"map": m, "x": n[3] & 0x3F, "y": n[4] & 0x3F, "npc_script": n[0], "needs_set": [c[1] for c in conds if c[0] == "flag_set"],
+                              "needs_clear": [c[1] for c in conds if c[0] == "flag_clear"], "other_conds": [c for c in conds if c[0] == "other"],
                               "event": ev, "sets": sets, "clears": clears, "script_ok": ok})
     json.dump(graph, open(out, "w"), indent=0)
     print(len(graph), "trigger events written to", out)
