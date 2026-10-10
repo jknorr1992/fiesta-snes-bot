@@ -148,11 +148,13 @@ class Nav(Game):
         return bool(b1n & ((b1c & 3) | 4))
 
     def can_move_m(self, map_id, ids, props, c, n, d):
-        fm = self.free.get(map_id)
-        if fm:
-            if n in fm and d in fm[n]: return True       # step onto the doorway tile in its direction
-            if c in fm and d in fm[c]: return True       # and off it the way the script pushes
         return self.can_move(ids, props, c, n, d)
+
+    def hop_edges(self, map_id, c):
+        """Forced-move facing triggers (events 840-843) hop the party two tiles over a deep-water gap: [(direction, target tile)]."""
+        fm = self.free.get(map_id)
+        if not fm or c not in fm: return []
+        return [(d, (c[0] + 2 * DIRS[d][0], c[1] + 2 * DIRS[d][1])) for d in fm[c]]
 
     def plan_local(self, start, goal, ids, props, map_id):
         import heapq
@@ -172,6 +174,10 @@ class Nav(Game):
                 w = 1 + (60 if n in av and n not in goals else 0)   # stepping on another map's entrance leaves the map: only if unavoidable
                 if n not in dist or dcur + w < dist[n]:
                     dist[n] = dcur + w; prev[n] = (c, d); heapq.heappush(pq, (dist[n], n))
+            for d, n in self.hop_edges(map_id, c):
+                if not (0 <= n[0] < 64 and 0 <= n[1] < 64) or (c, d) in bl: continue
+                if n not in dist or dcur + 1 < dist[n]:
+                    dist[n] = dcur + 1; prev[n] = (c, d); heapq.heappush(pq, (dist[n], n))
         if found is None: return None
         path, c = [], found
         while prev[c]: c, d = prev[c][0], prev[c][1]; path.append(d)
@@ -222,6 +228,7 @@ class Nav(Game):
             if not path:
                 nopath += 1
                 if nopath > 6: return self.probe(x, y, m0) or "nopath"
+                for _ in range(3): self.press("A", 4, 14)    # result screens ($18 is already 0) need A presses
                 self.settle(30); continue   # battle result screens and scripts leave the RAM grid unusable for a while
             for d in path[:12]:
                 moved, p = self.step(d)

@@ -106,6 +106,8 @@ class Runner:
                 if n in seen or not (0 <= n[0] < 64 and 0 <= n[1] < 64): continue
                 if not self.n.can_move_m(m, ids, props, c, n, d): continue
                 seen.add(n); st.append(n)
+            for d, n in self.n.hop_edges(m, c):
+                if n not in seen and 0 <= n[0] < 64 and 0 <= n[1] < 64: seen.add(n); st.append(n)
         key = (m, min(seen)); fs = frozenset(seen); self._rooms[key] = fs
         for t in fs: self._room[(m,) + t] = key
         return fs
@@ -173,8 +175,12 @@ class Runner:
             if r == "nopath" and self.n.pos()[3] == 0 and self.board_vehicle(): continue    # reachable by boat/other vehicle
             if r == "nopath": self.bad.add((fm, x, y)); continue    # unreachable entrance on foot: try another route
             if r == "arrived" and self.n.stable()[0] == fm and (fm, x, y, dm) not in self.trig_info:
-                self.bounce()                      # arrival tile is the entrance tile itself: step off and back on
-                if self.n.stable()[0] == fm: self.bad.add((fm, x, y))
+                px, py = self.n.fpos()[1:3]
+                if abs(px - x) + abs(py - y) <= 1:
+                    self.bounce()                  # arrival tile is the entrance tile itself: step off and back on
+                    self.n.settle(10)
+                    qx, qy = self.n.fpos()[1:3]
+                    if self.n.stable()[0] == fm and abs(qx - x) + abs(qy - y) <= 2: self.bad.add((fm, x, y))
                 continue
             if r not in ("mapchange", "arrived"): return False
             self.n.dialog(); time.sleep(0.5)
