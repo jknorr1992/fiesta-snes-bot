@@ -26,6 +26,8 @@ func is_done(goal: Dictionary, state: FFVGameState) -> bool:
 	var w: Dictionary = goal.get("when", {})
 	if w.is_empty():
 		return false
+	if w.has("in_map") and state.map_id != int(w.in_map):
+		return false
 	if w.has("min_gil") and state.gil < int(w.min_gil):
 		return false
 	if w.has("min_level_all"):
@@ -41,6 +43,8 @@ func _done_set(state: FFVGameState) -> Dictionary:
 	for g in goals:
 		if is_done(g, state):
 			done[g.id] = true
+			if g.get("when", {}).has("in_map"):
+				confirmed[g.id] = true  # one-way events stay done after the player leaves
 	var changed := true
 	while changed:
 		changed = false

@@ -10,6 +10,7 @@ const PARTY_SLOTS := 4
 const GIL := 0x0947              ## 3 bytes little-endian
 const MAP_X := 0x0AD8            ## tile x on the current map (world map or local map)
 const MAP_Y := 0x0AD9
+const MAP_ID := 0x0B4F  # 1 = world map, 26 = Tycoon meteor forest, 27 = crater (observed)
 const TILE_MAP := 0x10000        ## 64x64 tile ids of the current local map, row-major ($7F0000)
 const TILE_MAP_SIZE := 64
 

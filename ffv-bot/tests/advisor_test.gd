@@ -21,4 +21,12 @@ func _initialize() -> void:
 	s.gil = 500
 	s.party = [{"level": 1}]
 	print("---\n", adv.describe(s))
+	var c := FFVAdvisor.new()
+	c.load_route()
+	var t := FFVGameState.new()
+	t.map_id = 27
+	t.party = [{"level": 1}]
+	c.next_goal(t)
+	t.map_id = 1
+	print("--- left crater, latched:\n", c.describe(t))
 	quit()

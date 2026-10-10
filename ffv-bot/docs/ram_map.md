@@ -1,4 +1,5 @@
 # Verified RAM facts (WRAM offsets, snes9x core, READ_CORE_RAM offset 0 = $7E0000)
+| $0B4F | Map id (observed: 1 world map, 26 meteor forest, 27 crater) |
 
 | Address | Meaning |
 |---|---|
