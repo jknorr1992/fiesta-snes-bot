@@ -17,6 +17,9 @@ var _lines: Array[String] = []
 var _snap := PackedByteArray()
 
 
+var advisor := FFVAdvisor.new()
+
+
 func _ready() -> void:
 	add_child(pad)
 	add_child(ra)
@@ -82,7 +85,19 @@ func _ready() -> void:
 	var diff_btn := Button.new()
 	diff_btn.text = "Diff vs snapshot"
 	diff_btn.pressed.connect(_diff)
-	for c in [addr_edit, len_edit, read_btn, auto_btn, gil_btn, snap_btn, diff_btn]:
+	var state_btn := Button.new()
+	state_btn.text = "Game state"
+	state_btn.pressed.connect(func():
+		var st := await FFVGameState.read(ra)
+		_log(st.describe() if st != null else "state read failed - run Auto-detect first"))
+	var adv_btn := Button.new()
+	adv_btn.text = "Advise"
+	adv_btn.pressed.connect(func():
+		if advisor.goals.is_empty():
+			advisor.load_route()
+		var st := await FFVGameState.read(ra)
+		_log(advisor.describe(st) if st != null else "state read failed - run Auto-detect first"))
+	for c in [addr_edit, len_edit, read_btn, auto_btn, gil_btn, state_btn, adv_btn, snap_btn, diff_btn]:
 		rrow.add_child(c)
 
 	log_label = RichTextLabel.new()

@@ -1,0 +1,12 @@
+{
+  "_note": "DRAFT route. Goals marked verified:false come from general FFV knowledge and still need confirming on the test bed. 'when' is a RAM-checkable condition; goals without one are confirmed manually in the advisor until a story flag is mapped.",
+  "goals": [
+    {"id": "meteor_site", "title": "Walk into the crater at Tycoon and watch the meteor scene", "verified": true},
+    {"id": "first_battle", "title": "Win the first battle (2 Goblins)", "verified": true, "needs": ["meteor_site"]},
+    {"id": "choose_jobs", "title": "Set the party's jobs", "job_select": true, "verified": false, "needs": ["first_battle"]},
+    {"id": "tule", "title": "Reach Tule and the Wind Shrine", "verified": false, "needs": ["choose_jobs"]},
+    {"id": "levels_5", "title": "Get everyone to level 5 on the way", "when": {"min_level_all": 5}, "verified": false, "needs": ["tule"],
+      "bottleneck": true, "safety": "Do not grind past what the next fight needs."},
+    {"id": "gil_1000", "title": "Have 1000 Gil for equipment", "when": {"min_gil": 1000}, "verified": false, "needs": ["levels_5"]}
+  ]
+}
