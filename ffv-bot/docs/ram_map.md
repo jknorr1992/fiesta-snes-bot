@@ -21,3 +21,6 @@ Unknown so far: dialog flag, menu/battle-cursor state, story flags, treasure-ope
 - $0A14..$0AD3 (96 bytes): event/story bits; event n = byte (n>>3) bit (n&7). Diffing new-game vs world-after-crater flipped events 306 (byte $0A3A bit 2) and 455 ($0A4C bit 7).
 - $09D4..$09F3: treasures-opened bits. $0B57 message dialog open (wiki, unverified).
 - Wiki extracts: /mnt/project-files/ffv-bot-notes/wiki-extracts.md
+
+## Static world map from ROM (verified)
+tools/ffv_decomp.py `world_row()` decodes world-map rows: pointer = u16 at file offset 0xFE000 + 512*world + 2*y, data at 0x70000 + pointer. For world 0, rows 136-149 match the RAM band at $10000 exactly except the 3 tiles around the player (entity overlay at x=175). So the whole world map is available without walking it. The ROM has no copier header (CF/E000 = file 0xFE000).
