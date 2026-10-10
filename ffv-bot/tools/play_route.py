@@ -272,6 +272,8 @@ class Runner:
                 self.n.settle()
             elif s["kind"] == "entrance":
                 ok = self.go_map(s["to"][0])
+            elif s["kind"] == "land":
+                self.say("  (land step: the next entrance step walks/sails there)")
             else:
                 self.say("  (manual step)"); ok = False
             for f in s.get("sets", []):
