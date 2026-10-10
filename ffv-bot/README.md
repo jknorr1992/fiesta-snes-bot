@@ -16,3 +16,6 @@ Godot 4 bot for Final Fantasy V (FF5r Super Special Deep Clean). Read-only RAM a
 
 ## Known to verify against real bsnes
 RAM address mapping (libretro may expose WRAM at 0x7E0000 or at 0x0). Step 2 will add a configurable base and a check.
+
+## Map viewer (scenes/map_view.tscn)
+Open this scene instead of the test bench to see the bot's view of the maps: the static world map from your ROM (colour = tile id, darker = blocked by the ROM property table) and, with "Follow RetroArch" ticked, the live player position and the current local map. Click a tile, name it, press Add marker; Link start/end joins two markers. Export writes the JSON (marks + links) to the path in the export field, e.g. a file inside the project folder, which can then be handed back to Claude.

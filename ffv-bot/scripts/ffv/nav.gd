@@ -72,6 +72,24 @@ func plan(tiles: PackedByteArray, start: Vector2i, goal: Vector2i) -> Array[Stri
 	return []
 
 
+## Position after a step: on-foot walking takes longer than the tap, so wait until it changes and then stops.
+func _settle(from: Vector2i) -> Vector2i:
+	var p := await position()
+	for k in 6:
+		if p != from:
+			break
+		await tree.create_timer(0.15).timeout
+		p = await position()
+	if p != from:
+		for k in 4:
+			await tree.create_timer(0.12).timeout
+			var q := await position()
+			if q == p:
+				break
+			p = q
+	return p
+
+
 ## True while a message window is open (WRAM $0B57, verified: 1 during the Boco dialog, 0 after).
 func dialog_open() -> bool:
 	return (await ra.read_u8(FFVRam.DIALOG_OPEN)) == 1
@@ -116,7 +134,7 @@ func goto(goal: Vector2i, max_steps := 200) -> String:
 		var target: Vector2i = cur + DIRS[d]
 		var tid := _tile(tiles, target)
 		await _press(d, step_frames)
-		var now := await position()
+		var now := await _settle(cur)
 		if now == cur and await dialog_open():
 			await clear_dialog()
 			continue  # an event interrupted the step; not evidence that the tile is blocked
@@ -124,12 +142,13 @@ func goto(goal: Vector2i, max_steps := 200) -> String:
 			await _press("A", 4)  # a dialog may be eating the input
 			await tree.create_timer(0.6).timeout
 			await _press(d, step_frames)
-			now = await position()
+			now = await _settle(cur)
 		if now == cur:
-			known[tid] = false
+			local_bumps[tid] = int(local_bumps.get(tid, 0)) + 1
+			if known.get(tid, null) != true and int(local_bumps[tid]) >= 2:
+				known[tid] = false  # two failed attempts and never walked onto: treat as blocked
 		else:
-			if not known.has(tid):
-				known[tid] = true
+			known[tid] = true  # walking onto a tile once proves it passable (ledges aside)
 			if absi(now.x - cur.x) + absi(now.y - cur.y) > 2:
 				return "map_changed"
 	return "stuck"
@@ -264,6 +283,7 @@ func _plan_world(band: PackedByteArray, start: Vector2i, goal: Vector2i) -> Arra
 ## Local-map frontier exploration: repeatedly walk to the nearest reachable tile that has not been visited yet,
 ## preferring tiles whose id is still unknown. Stops on a map change or battle. Returns the reason.
 var visited := {}  # Vector2i -> true, for the current map
+var local_bumps := {}  # tile id -> failed local-map attempts
 
 
 func _nearest_unvisited(tiles: PackedByteArray, start: Vector2i) -> Vector2i:
