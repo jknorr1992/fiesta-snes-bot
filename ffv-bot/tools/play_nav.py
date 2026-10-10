@@ -162,7 +162,7 @@ class Nav(Game):
             for d, (dx, dy) in DIRS.items():
                 n = ((c[0] + dx) % 256, (c[1] + dy) % 256)
                 if n in prev or (c, d) in bl: continue
-                if n != goal and not self.world.passable(w, veh, n[0], n[1], mk): continue
+                if n != goal and not self.world.passable(w, veh, n[0], n[1], mk) and not (veh and self.world.can_land(w, veh, n[0], n[1], mk) and self.world.passable(w, 0, n[0], n[1], mk)): continue   # vehicles disembark by moving onto a landing tile
                 prev[n] = (c, d); q.append(n)
         if goal not in prev: return None
         path, c = [], goal
@@ -208,6 +208,8 @@ class Nav(Game):
                             self.blocked.setdefault(m if local else (m, "w"), set()).add(((cx, cy), d)); stuck += 1
                     break
                 dx, dy = DIRS[d]
+                if not local and self.u8(0xADC) != v:
+                    cx, cy = p[1], p[2]; break         # boarded or disembarked: replan with the new vehicle
                 if (p[1], p[2]) != (cx + dx, cy + dy) and local:
                     cx, cy = p[1], p[2]; break         # overshoot or a scripted move: replan from where we are
                 cx, cy = p[1], p[2]
