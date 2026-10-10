@@ -1,0 +1,79 @@
+#!/usr/bin/env python3
+"""Python driver for the RetroArch test bed (network commands UDP 55355, network gamepad UDP 55400), used to play-test the route.
+Pad: 20-byte little-endian remote_message (port, device=1, index=0, id int32, state uint16, 2 pad); buttons latch, one packet per frame.
+Dev cheats (allowed by the user for route testing only): write WRAM via WRITE_CORE_RAM."""
+import socket, struct, time, os
+
+IDS = {"B": 0, "Y": 1, "SELECT": 2, "START": 3, "UP": 4, "DOWN": 5, "LEFT": 6, "RIGHT": 7, "A": 8, "X": 9, "L": 10, "R": 11}
+FRAME = 1 / 60.0
+
+class Game:
+    def __init__(self, host="127.0.0.1", fast=1.0):
+        self.c = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); self.c.settimeout(1.0)
+        self.p = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.host, self.fast = host, fast
+
+    # ---- commands ----
+    def cmd(self, s, reply=False):
+        self.c.sendto(s.encode(), (self.host, 55355))
+        if reply:
+            try: return self.c.recvfrom(65536)[0].decode()
+            except socket.timeout: return None
+
+    def read(self, off, n=1):
+        want = "READ_CORE_RAM %x" % off
+        for _ in range(8):
+            self.c.settimeout(0.01)
+            try:
+                while True: self.c.recvfrom(65536)   # drop stale replies
+            except Exception: pass
+            self.c.settimeout(1.0)
+            r = self.cmd("READ_CORE_RAM %x %d" % (off, n), True)
+            if r:
+                t = r.split()
+                if len(t) == 2 + n and t[0] == "READ_CORE_RAM" and t[1] == want.split()[1] and t[2] != "-1":
+                    return bytes(int(x, 16) for x in t[2:])
+            time.sleep(0.05)
+        raise IOError("read failed %x %d" % (off, n))
+
+    def write(self, off, data):
+        self.cmd("WRITE_CORE_RAM %x %s" % (off, " ".join("%02x" % b for b in data)))
+        time.sleep(0.02)
+
+    def u8(self, o): return self.read(o)[0]
+    def u16(self, o): b = self.read(o, 2); return b[0] | b[1] << 8
+    def shot(self):
+        self.cmd("SCREENSHOT"); time.sleep(0.5)
+        d = "/tmp/ffv-shots"; fs = sorted((os.path.join(d, f) for f in os.listdir(d)), key=os.path.getmtime)
+        return fs[-1]
+    slot = 0
+    STATES = "/mnt/project-files/retroarch-testbed/states/Snes9x"
+    def save_as(self, path):
+        """Save a state of the current slot (no "save slot N" network command exists) and copy the file to `path`."""
+        import glob, shutil
+        self.cmd("SAVE_STATE"); time.sleep(1.2)
+        fs = [f for f in glob.glob(self.STATES + "/*patched)(1).state*") if not f.endswith(".png")]
+        f = max(fs, key=os.path.getmtime); shutil.copy(f, path); return f
+    def load_from(self, path, slot=1):
+        import shutil
+        f = "%s/Final Fantasy V (Japan) (patched)(1).state%d" % (self.STATES, slot)
+        shutil.copy(path, f); self.load(slot)
+    def load(self, slot): self.cmd("LOAD_STATE_SLOT %d" % slot); self.slot = slot; time.sleep(1.0)
+
+    # ---- state ----
+    def state(self):
+        mp = self.u16(0xAD4)
+        x, y = self.u8(0xAD8), self.u8(0xAD9)
+        return {"map": mp & 0xFFF, "x": x, "y": y, "local": self.u8(0xB53), "battle": self.u8(0x18), "msg": self.u8(0xB57)}
+    def flag(self, n): return bool(self.u8(0xA14 + (n >> 3)) >> (n & 7) & 1)
+    def gil(self): b = self.read(0x947, 3); return b[0] | b[1] << 8 | b[2] << 16
+
+    # ---- pad ----
+    def _pkt(self, bid, down): return struct.pack("<iiiiHH", 0, 1, 0, bid, 1 if down else 0, 0)
+    def _send(self, bid, down): self.p.sendto(self._pkt(bid, down), (self.host, 55400))
+    def wait(self, frames): time.sleep(frames * FRAME / self.fast)
+    def press(self, b, hold=4, gap=4):
+        self._send(IDS[b], True); self.wait(hold); self._send(IDS[b], False); self.wait(gap)
+    def hold(self, b, frames):
+        self._send(IDS[b], True); self.wait(frames); self._send(IDS[b], False); self.wait(1)
+    def release_all(self): self.p.sendto(b"\0", (self.host, 55400))
