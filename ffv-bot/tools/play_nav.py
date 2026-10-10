@@ -10,6 +10,8 @@ from world_model import World
 
 DIRS = {"UP": (0, -1), "DOWN": (0, 1), "LEFT": (-1, 0), "RIGHT": (1, 0)}
 
+HOLDS = (3, 14)
+
 class Nav(Game):
     _void = {}
     def __init__(self, rom_path, fast=1.0):
@@ -145,7 +147,7 @@ class Nav(Game):
         frames (a held key overshoots by a tile), fall back to a longer hold when the tap did not start a move."""
         from play import IDS
         before = self.fpos()
-        for hold in (3, frames):
+        for hold in HOLDS:
             self._send(IDS[d], True)
             moved = False
             for i in range(hold):

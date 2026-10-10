@@ -1,0 +1,72 @@
+"""Play a simulator macro-path on the emulator test bed (pad input only, dev cheats for battles) and compare the live game with the
+simulation after every action: map, position and event flags. Position is never written."""
+import sys, os, time, pickle
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools"))
+from sim import *
+from play_nav import Nav
+from play import IDS
+
+import play_nav; play_nav.HOLDS = (1, 3, 14)
+BTN = {1: "UP", 2: "RIGHT", 3: "DOWN", 4: "LEFT"}
+
+class Diverged(Exception): pass
+
+class Exec(Nav):
+    def __init__(self, S):
+        super().__init__(DEFAULT_ROM, fast=1.0)
+        self.S = S
+
+    def live(self):
+        m, x, y = self.fpos()
+        raw = self.read(0xA14, 64)
+        return {"map": m, "x": x, "y": y, "flags": int.from_bytes(raw, "little"), "local": self.u8(0xB53)}
+
+    def do(self, s, act):
+        """perform `act` from sim state s on the emulator"""
+        if act.path:
+            n, p = self.walk_dirs(act.path)
+            if n < len(act.path):
+                self.settle()
+                return
+        if act.kind in ("talk", "turn", "press"):
+            if act.stand: self.press(BTN[act.stand], 4, 6)
+            if act.kind != "turn": self.press("A", 4, 10)
+        self.settle()
+
+    def walk_dirs(self, dirs):
+        """walk with one tap per tile (hold-and-poll proved unreliable). Auto-move tiles (conveyors) can advance the party past the
+        tile just stepped on, so a position that matches a later tile of the path is accepted too. Stops on a mismatch."""
+        m0, cx, cy = self.fpos()
+        DX = {1: (0, -1), 2: (1, 0), 3: (0, 1), 4: (-1, 0)}
+        mask = 255 if m0 < 5 else 63
+        tiles = []
+        x, y = cx, cy
+        for d in dirs:
+            x, y = (x + DX[d][0]) & mask, (y + DX[d][1]) & mask; tiles.append((x, y))
+        k = 0                                   # tiles[0:k] done
+        while k < len(dirs):
+            if k and dirs[k] != dirs[k - 1]: self.wait(24)
+            moved, p = self.step(BTN[dirs[k]])
+            if p[0] != m0: return k + 1, self.pos()
+            cur = (p[1], p[2])
+            j = next((i for i in range(k, min(k + 4, len(tiles))) if tiles[i] == cur), None)
+            if j is None: return k, self.pos()
+            k = j + 1
+        return k, self.pos()
+
+    def _expected(self, s, path):
+        x, y = s.x, s.y
+        for d in path:
+            dx, dy = {1: (0, -1), 2: (1, 0), 3: (0, 1), 4: (-1, 0)}[d]
+            x, y = (x + dx) & (255 if s.map < 5 else 63), (y + dy) & (255 if s.map < 5 else 63)
+        return x, y
+
+def compare(S, live, s):
+    out = []
+    if (live["map"], live["x"], live["y"]) != (s.map, s.x, s.y): out.append("pos live %s sim %s" % ((live["map"], live["x"], live["y"]), (s.map, s.x, s.y)))
+    d = (live["flags"] ^ s.flags) & S.read_mask
+    if d:
+        out.append("flags differ live-only %s sim-only %s" % ([i for i in range(512) if d >> i & 1 and live["flags"] >> i & 1],
+                                                              [i for i in range(512) if d >> i & 1 and s.flags >> i & 1]))
+    return out
