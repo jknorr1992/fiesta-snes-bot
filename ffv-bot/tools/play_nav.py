@@ -15,6 +15,7 @@ class Nav(Game):
         super().__init__(fast=fast)
         self.world = World(open(rom_path, "rb").read())
         self.blocked = {}
+        self.free = {}       # map -> {tile: set of directions}: forced-move trigger tiles (ladders/doorways) that the property rule rejects
         self.avoid = {}      # map -> set of tiles to path around (map entrances other than the goal)
         self.log = []
         from event_vm import Rom
@@ -48,8 +49,12 @@ class Nav(Game):
     def pos(self):
         m, x, y = self.fpos(); return m, x, y, self.u8(0xB53)
     def cur_veh(self):
-        """Vehicle the party is riding: $0ADC flickers while moving, so match the party tile against the vehicle table
-        ($0ADD, 4 bytes each: flags, height, x, y; vehicle id = slot + 1)."""
+        """Vehicle the party rides. $0ADC flickers to 0 while a vehicle moves, so take the largest of several samples; also match
+        the party tile against the parked-vehicle table ($0ADD, 4 bytes each: flags, height, x, y; vehicle id = slot + 1)."""
+        v = 0
+        for _ in range(5):
+            v = max(v, self.u8(0xADC)); time.sleep(0.03)
+        if v: return v
         m, x, y = self.fpos()
         raw = self.read(0xADD, 24)
         for i in range(6):
@@ -134,11 +139,20 @@ class Nav(Game):
     def can_move(self, ids, props, c, n, d):
         """Engine rule (CheckPartyCanMove): the tile you leave must open its side in direction d (properties byte 2),
         and the destination's z-level bits (byte 1) must match the current tile's z-level or be a bridge."""
+        if max(c[1] * 64 + c[0], n[1] * 64 + n[0]) >= len(ids): return False
         tc, tn = ids[c[1] * 64 + c[0]], ids[n[1] * 64 + n[0]]
+        if 2 * max(tc, tn) + 1 >= len(props): return False
         b1c, b2c = props[2 * tc], props[2 * tc + 1]
         b1n = props[2 * tn]
         if not (b2c & self.SIDE[d]) and not (b2c & 0x40): return False
         return bool(b1n & ((b1c & 3) | 4))
+
+    def can_move_m(self, map_id, ids, props, c, n, d):
+        fm = self.free.get(map_id)
+        if fm:
+            if n in fm and d in fm[n]: return True       # step onto the doorway tile in its direction
+            if c in fm and d in fm[c]: return True       # and off it the way the script pushes
+        return self.can_move(ids, props, c, n, d)
 
     def plan_local(self, start, goal, ids, props, map_id):
         import heapq
@@ -154,7 +168,7 @@ class Nav(Game):
             for d, (dx, dy) in DIRS.items():
                 n = (c[0] + dx, c[1] + dy)
                 if not (0 <= n[0] < 64 and 0 <= n[1] < 64) or (c, d) in bl: continue
-                if not self.can_move(ids, props, c, n, d): continue
+                if not self.can_move_m(map_id, ids, props, c, n, d): continue
                 w = 1 + (60 if n in av and n not in goals else 0)   # stepping on another map's entrance leaves the map: only if unavoidable
                 if n not in dist or dcur + w < dist[n]:
                     dist[n] = dcur + w; prev[n] = (c, d); heapq.heappush(pq, (dist[n], n))
@@ -178,7 +192,7 @@ class Nav(Game):
                 if (c, d) in bl: continue
                 if v and self.world.passable(w, v, n[0], n[1], mk): nv = v
                 elif self.world.passable(w, 0, n[0], n[1], mk) and (v == 0 or v == 5 or self.world.can_land(w, v, n[0], n[1], mk)): nv = 0
-                elif n == goal: nv = v
+                elif n == goal and v: nv = v
                 else: continue
                 ns = (n, nv)
                 if ns in prev: continue

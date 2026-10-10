@@ -44,6 +44,7 @@ class Rom:
         b = b - 0xC00000 if b >= 0xC00000 else b
         return r[a:b]
 
+    @__import__('functools').lru_cache(maxsize=None)
     def event_ops(self, idx):
         """List of (op, args dict) in script order."""
         s = self.event_bytes(idx)
