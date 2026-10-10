@@ -75,6 +75,39 @@ class Rom:
         else: ptr, bank, n = g * 0x200, 0x1A0000, 1
         return self.r[bank + ptr:bank + ptr + 0x200 * n]
 
+    OVERLAY_GFX = 0xDF00            # C0/DF00: 1bpp overlay sprite graphics
+    OVERLAY_TILES = 0x2667          # C0/2667 OverlayTilesTbl (27 tilesets x 16 bytes)
+
+    def npcs(self, m):
+        """NPC properties of local map m (7 bytes each at 0xE59C0 + pointer table): script, gfx, x, y, flags, pal"""
+        r = self.r
+        a, b = u16(r, 0xE59C0 + 2 * m), u16(r, 0xE59C0 + 2 * (m + 1))
+        out = []
+        for o in range(0xE59C0 + a, 0xE59C0 + b, 7):
+            out.append({"script": u16(r, o) & 0x3FFF, "flags1": r[o + 1], "gfx": r[o + 2], "x": r[o + 3] & 0x3F, "y": r[o + 4] & 0x3F,
+                        "flags": r[o + 5], "pal": r[o + 6]})
+        return out
+
+    # ---- world map data ----
+    WORLD_GFX = 0x1B8000          # DB/8000: 3 world tilesets of 256 linear 4bpp characters
+    WORLD_ATTR = 0xFF9C0          # CF/F9C0: per-character palette attribute (256 bytes per tileset)
+    WORLD_TILESET = 0xFF0C0       # CF/F0C0: 16x16 tile arrangements (4 planes of 192 bytes: TL, TR, BL, BR) per tileset
+    WORLD_TILESET_OF_MAP = (0, 1, 0, 2, 2)
+
+    def world_chars(self, wmap):
+        """mode 7 character pixels for world map `wmap`: (256, 64) bytes = 4bpp nibbles | attribute (see TfrWorldGfx)"""
+        t = self.WORLD_TILESET_OF_MAP[wmap]
+        gfx = np.frombuffer(self.r, dtype=np.uint8, count=0x2000, offset=self.WORLD_GFX + t * 0x2000).reshape(256, 32)
+        attr = np.frombuffer(self.r, dtype=np.uint8, count=256, offset=self.WORLD_ATTR + t * 256)
+        out = np.zeros((256, 32, 2), dtype=np.uint8)
+        out[:, :, 0] = gfx & 15; out[:, :, 1] = gfx >> 4
+        out |= attr[:, None, None]
+        return out.reshape(256, 64)
+
+    def world_arrangement(self, wmap):
+        t = self.WORLD_TILESET_OF_MAP[wmap]
+        return np.frombuffer(self.r, dtype=np.uint8, count=768, offset=self.WORLD_TILESET + t * 768).reshape(4, 192)
+
     # math/main/sub tables of _c05bb8 (field map colour math presets: $48 math, TM, TS)
     def color_preset(self, i):
         return tuple(self.r[0x5BB8 + 3 * i:0x5BB8 + 3 * i + 3])
@@ -94,10 +127,40 @@ class Field:
             v[k * 0x2000:(k + 1) * 0x2000] = R.gfx_block(b)
         d = (u16(props, 10) >> 10) & 0x3F
         v[0x8000:0x9000] = R.bg3_gfx(d)
-        gfx = props[0]  # placeholder (kept for symmetry)
         party = w.u8(0xADA)
         if party < 9: v[0xC000:0xC000 + 0x800] = R.party_gfx(party)
+        self.load_npc_gfx(v, mapid)
+        self.load_overlay_gfx(v, props[8])
         return v, blocks, d
+
+    def load_npc_gfx(self, v, mapid):
+        """NPC sprite graphics, loaded one after another from VRAM word $6500 (_c03d28); an NPC with the same graphics as the previous one shares them"""
+        R = self.rom
+        pos, prev = 0x6500, None
+        for e in R.npcs(mapid):
+            g = e["gfx"]
+            if prev is not None and g == prev: continue
+            prev = g
+            if g == 0xFF: continue
+            data = R.npc_gfx(g, e["flags1"])
+            v[pos * 2:pos * 2 + len(data)] = data
+            pos += len(data) // 2
+
+    def load_overlay_gfx(self, v, tileset):
+        """overlay sprite graphics (LoadOverlayGfx): 16 overlay tiles of 1bpp data placed in bit plane 1 at VRAM words $7C00/$7D00"""
+        R = self.rom
+        for k in range(16):
+            idx = R.r[R.OVERLAY_TILES + tileset * 16 + k]
+            x = idx * 8
+            dest = (0x7C00 if k < 8 else 0x7D00) + k * 32
+            for half, base in ((0, dest), (1, dest + 0x100)):
+                for c in range(2):
+                    for row in range(8):
+                        b = R.r[R.OVERLAY_GFX + x + half * 128 + c * 8 + row]
+                        o = (base + c * 16 + row) * 2
+                        v[o] = 0; v[o + 1] = b
+                        for z in range(8, 16): v[(base + c * 16 + z) * 2:(base + c * 16 + z) * 2 + 2] = b"\0\0"
+
 
     def tilemaps(self, w):
         arr = np.frombuffer(w.read(0x16E22, 0x800), dtype="<u2").reshape(4, 256)    # TL, TR, BL, BR
@@ -148,7 +211,53 @@ class Field:
         regs["fixed"] = tuple(inten if c & (0x20 << i) else 0 for i in range(3))
         return regs
 
+    def build_world(self, w):
+        """mode 7 screen of the world map (map index $0AD6 < 5)"""
+        R = self.rom
+        wmap = w.u16(0xAD4)
+        chars = R.world_chars(wmap); arr = R.world_arrangement(wmap)         # arr planes: TL, TR, BL, BR
+        vram = bytearray(65536)
+        px, py = w.u8(0xAD8), w.u8(0xAD9)
+        band = np.frombuffer(w.read(0x10000, 0x4000), dtype=np.uint8).reshape(64, 256)   # band[y & 63][x]
+        tmap = np.zeros((128, 128), dtype=np.uint8)
+        for ty in range(64):
+            wy = py + ((ty - py + 32) % 64 - 32)
+            row = band[wy & 63]
+            for tx in range(64):
+                wx = (px + ((tx - px + 32) % 64 - 32)) & 255
+                t = row[wx]
+                if t >= 192: continue
+                tmap[2 * ty, 2 * tx] = arr[0][t]; tmap[2 * ty, 2 * tx + 1] = arr[1][t]
+                tmap[2 * ty + 1, 2 * tx] = arr[2][t]; tmap[2 * ty + 1, 2 * tx + 1] = arr[3][t]
+        v = np.frombuffer(vram, dtype=np.uint8) if False else None
+        buf = np.zeros(65536, dtype=np.uint8)
+        buf[0:32768:2] = tmap.reshape(-1)
+        # characters: char c pixel p lives at byte 2 * (c * 64 + p) + 1
+        buf[1:2 * 256 * 64:2] = chars.reshape(-1)
+        party = w.u8(0xADA)
+        if party < 9:
+            pg = np.frombuffer(R.party_gfx(party)[:0x200], dtype=np.uint8)
+        vram = bytearray(buf.tobytes())
+        if party < 9: vram[0xC000:0xC000 + 0x200] = R.party_gfx(party)[:0x200]
+        cg = [u16(w.read(0xC00, 512), 2 * i) for i in range(256)]
+        oam = w.read(0x200, 0x220)
+        regs = {a: 0 for a in range(0x2100, 0x2134)}
+        regs[0x2100] = (w.dp8(0x45) >> 4) & 15
+        regs[0x2101] = 3; regs[0x2105] = 7
+        regs[0x2123] = 0xBF; regs[0x2124] = 0x0B; regs[0x2125] = 0x33
+        regs[0x2126], regs[0x2127], regs[0x2128], regs[0x2129] = 0x08, 0xF7, 0xFF, 0x00
+        regs[0x212A] = 1; regs[0x212C] = 0x13; regs[0x212D] = w.dp8(0x49); regs[0x212E] = 0x17
+        regs[0x2130] = 0x22; regs[0x2131] = w.dp8(0x47)
+        c = w.dp8(0x4C); inten = w.dp8(0x46) >> 3
+        regs["fixed"] = tuple(inten if c & (0x20 << i) else 0 for i in range(3))
+        p = PPU(vram, cg, oam, regs, {})
+        o = [w.u16(0x10A0 + 2 * i) for i in range(2)]
+        hofs = ((w.dp16(0x61) >> 1) + o[0]) & 0x1FFF; vofs = ((w.dp16(0x63) >> 1) + o[1]) & 0x1FFF
+        p.m7 = {"a": 0x100, "b": 0, "c": 0, "d": 0x100, "cx": hofs + 0x78, "cy": vofs + 0x78, "hofs": hofs, "vofs": vofs}
+        return p
+
     def build(self, w):
+        if w.u8(0xB53) == 0: return self.build_world(w)
         mapid = w.u16(0xAD4)
         props = w.read(0x110C, 26)
         vram, blocks, d = self.build_vram(w, props, mapid)
