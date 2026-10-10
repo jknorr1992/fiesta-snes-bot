@@ -117,17 +117,28 @@ class Nav(Game):
 
     # ---- movement ----
     def step(self, d, frames=14):
-        """Hold direction d until the position changes; returns (moved, new position)."""
+        """One tile in direction d. The engine keeps walking while the key is down at the tile boundary, so tap the key for a few
+        frames (a held key overshoots by a tile), fall back to a longer hold when the tap did not start a move."""
         from play import IDS
         before = self.fpos()
-        self._send(IDS[d], True)
-        moved = False
-        for _ in range(frames):
-            self.wait(1)
-            if self.fpos() != before:
-                moved = True; break
-        self._send(IDS[d], False)
-        self.wait(6 if moved else 2)
+        for hold in (3, frames):
+            self._send(IDS[d], True)
+            moved = False
+            for i in range(hold):
+                self.wait(1)
+            self._send(IDS[d], False)
+            for _ in range(12):
+                self.wait(1)
+                if self.fpos() != before: moved = True; break
+            if moved: break
+        if moved:
+            last = None
+            for _ in range(10):                 # let the walk animation finish before the next command
+                self.wait(2); cur = self.fpos()
+                if cur == last: break
+                last = cur
+        else:
+            self.wait(2)
         return moved, self.pos()
 
     def local_grid(self):
