@@ -1,0 +1,956 @@
+[
+{
+"kind": "event",
+"event": 41,
+"where": [
+"trigger",
+0,
+175,
+142
+],
+"needs_set": [],
+"sets": [],
+"battles": [],
+"round": 1
+},
+{
+"kind": "event",
+"event": 477,
+"where": [
+"trigger",
+122,
+46,
+13
+],
+"needs_set": [],
+"sets": [
+16
+],
+"battles": [],
+"round": 2
+},
+{
+"kind": "event",
+"event": 45,
+"where": [
+"trigger",
+0,
+156,
+139
+],
+"needs_set": [
+16
+],
+"sets": [
+510
+],
+"battles": [],
+"round": 3
+},
+{
+"kind": "event",
+"event": 1055,
+"where": [
+"trigger",
+17,
+11,
+14
+],
+"needs_set": [],
+"sets": [
+17,
+455,
+481,
+510,
+511
+],
+"battles": [],
+"round": 4
+},
+{
+"kind": "entrance",
+"to": [
+18,
+0,
+0
+],
+"why": "entrance 0 (165,115)",
+"round": 5
+},
+{
+"kind": "event",
+"event": 47,
+"where": [
+"trigger",
+18,
+32,
+35
+],
+"needs_set": [],
+"sets": [
+282,
+283
+],
+"battles": [],
+"round": 6
+},
+{
+"kind": "entrance",
+"to": [
+20,
+0,
+0
+],
+"why": "entrance 19 (19,37)",
+"round": 7
+},
+{
+"kind": "entrance",
+"to": [
+21,
+0,
+0
+],
+"why": "entrance 20 (27,10)",
+"round": 8
+},
+{
+"kind": "entrance",
+"to": [
+22,
+0,
+0
+],
+"why": "entrance 21 (41,37)",
+"round": 9
+},
+{
+"kind": "event",
+"event": 58,
+"where": [
+"trigger",
+22,
+28,
+18
+],
+"needs_set": [],
+"sets": [
+291
+],
+"battles": [],
+"round": 10
+},
+{
+"kind": "event",
+"event": 1094,
+"where": [
+"trigger",
+24,
+20,
+10
+],
+"needs_set": [],
+"sets": [
+21,
+454
+],
+"battles": [],
+"round": 11
+},
+{
+"kind": "event",
+"event": 79,
+"where": [
+"trigger",
+0,
+170,
+88
+],
+"needs_set": [],
+"sets": [],
+"battles": [],
+"round": 12
+},
+{
+"kind": "event",
+"event": 119,
+"where": [
+"trigger",
+40,
+53,
+34
+],
+"needs_set": [],
+"sets": [
+290,
+510
+],
+"battles": [
+2
+],
+"round": 13
+},
+{
+"kind": "event",
+"event": 1189,
+"where": [
+"trigger",
+43,
+47,
+10
+],
+"needs_set": [],
+"sets": [
+508
+],
+"battles": [],
+"round": 14
+},
+{
+"kind": "entrance",
+"to": [
+59,
+0,
+0
+],
+"why": "entrance 0 (226,39)",
+"round": 15
+},
+{
+"kind": "entrance",
+"to": [
+60,
+0,
+0
+],
+"why": "entrance 59 (36,40)",
+"round": 16
+},
+{
+"kind": "entrance",
+"to": [
+63,
+0,
+0
+],
+"why": "entrance 60 (59,20)",
+"round": 17
+},
+{
+"kind": "entrance",
+"to": [
+58,
+0,
+0
+],
+"why": "entrance 63 (10,12)",
+"round": 18
+},
+{
+"kind": "event",
+"event": 720,
+"where": [
+"trigger",
+58,
+52,
+54
+],
+"needs_set": [],
+"sets": [],
+"battles": [],
+"round": 19
+},
+{
+"kind": "entrance",
+"to": [
+62,
+0,
+0
+],
+"why": "entrance 61 (10,11)",
+"round": 20
+},
+{
+"kind": "event",
+"event": 91,
+"where": [
+"trigger",
+62,
+15,
+13
+],
+"needs_set": [],
+"sets": [
+36
+],
+"battles": [],
+"round": 21
+},
+{
+"kind": "land",
+"to": [
+0,
+0,
+128
+],
+"why": "land 3",
+"round": 22
+},
+{
+"kind": "entrance",
+"to": [
+89,
+0,
+0
+],
+"why": "entrance 0 (210,115)",
+"round": 23
+},
+{
+"kind": "entrance",
+"to": [
+97,
+0,
+0
+],
+"why": "entrance 89 (28,31)",
+"round": 24
+},
+{
+"kind": "event",
+"event": 95,
+"where": [
+"trigger",
+97,
+44,
+40
+],
+"needs_set": [],
+"sets": [
+482,
+510
+],
+"battles": [],
+"round": 25
+},
+{
+"kind": "event",
+"event": 125,
+"where": [
+"trigger",
+0,
+204,
+84
+],
+"needs_set": [],
+"sets": [],
+"battles": [],
+"round": 26
+},
+{
+"kind": "entrance",
+"to": [
+120,
+0,
+0
+],
+"why": "entrance 119 (16,15)",
+"round": 27
+},
+{
+"kind": "entrance",
+"to": [
+121,
+0,
+0
+],
+"why": "entrance 120 (44,18)",
+"round": 28
+},
+{
+"kind": "event",
+"event": 100,
+"where": [
+"trigger",
+121,
+18,
+52
+],
+"needs_set": [],
+"sets": [
+42,
+164,
+508,
+510
+],
+"battles": [],
+"round": 29
+},
+{
+"kind": "land",
+"to": [
+0,
+0,
+141
+],
+"why": "land 5",
+"round": 12
+},
+{
+"kind": "entrance",
+"to": [
+32,
+0,
+0
+],
+"why": "entrance 0 (130,89)",
+"round": 13
+},
+{
+"kind": "entrance",
+"to": [
+39,
+0,
+0
+],
+"why": "entrance 32 (33,21)",
+"round": 14
+},
+{
+"kind": "land",
+"to": [
+0,
+0,
+47
+],
+"why": "land 5",
+"round": 12
+},
+{
+"kind": "entrance",
+"to": [
+27,
+0,
+0
+],
+"why": "entrance 0 (182,52)",
+"round": 13
+},
+{
+"kind": "entrance",
+"to": [
+28,
+0,
+0
+],
+"why": "entrance 27 (27,20)",
+"round": 14
+},
+{
+"kind": "entrance",
+"to": [
+29,
+0,
+0
+],
+"why": "entrance 28 (12,53)",
+"round": 15
+},
+{
+"kind": "entrance",
+"to": [
+30,
+0,
+0
+],
+"why": "entrance 29 (50,14)",
+"round": 16
+},
+{
+"kind": "entrance",
+"to": [
+31,
+0,
+0
+],
+"why": "entrance 30 (49,50)",
+"round": 17
+},
+{
+"kind": "event",
+"event": 63,
+"where": [
+"trigger",
+31,
+45,
+25
+],
+"needs_set": [],
+"sets": [
+23,
+510
+],
+"battles": [],
+"round": 18
+},
+{
+"kind": "event",
+"event": 75,
+"where": [
+"trigger",
+39,
+19,
+22
+],
+"needs_set": [
+23
+],
+"sets": [
+28,
+453,
+510
+],
+"battles": [],
+"round": 19
+},
+{
+"kind": "event",
+"event": 1315,
+"where": [
+"board ship"
+],
+"needs_set": [
+28
+],
+"sets": [
+332
+],
+"battles": [],
+"round": 20
+},
+{
+"kind": "event",
+"event": 108,
+"where": [
+"board ship"
+],
+"needs_set": [
+42
+],
+"sets": [],
+"battles": [],
+"round": 30
+},
+{
+"kind": "event",
+"event": 1861,
+"where": [
+"trigger",
+156,
+25,
+23
+],
+"needs_set": [],
+"sets": [],
+"battles": [],
+"round": 39
+},
+{
+"kind": "entrance",
+"to": [
+477,
+0,
+0
+],
+"why": "entrance 476 (53,13)",
+"round": 40
+},
+{
+"kind": "entrance",
+"to": [
+478,
+0,
+0
+],
+"why": "entrance 477 (47,26)",
+"round": 41
+},
+{
+"kind": "entrance",
+"to": [
+479,
+0,
+0
+],
+"why": "entrance 478 (47,35)",
+"round": 42
+},
+{
+"kind": "entrance",
+"to": [
+480,
+0,
+0
+],
+"why": "entrance 479 (12,45)",
+"round": 43
+},
+{
+"kind": "entrance",
+"to": [
+485,
+0,
+0
+],
+"why": "entrance 480 (11,16)",
+"round": 44
+},
+{
+"kind": "entrance",
+"to": [
+481,
+0,
+0
+],
+"why": "entrance 485 (14,46)",
+"round": 45
+},
+{
+"kind": "entrance",
+"to": [
+489,
+0,
+0
+],
+"why": "entrance 481 (50,28)",
+"round": 46
+},
+{
+"kind": "entrance",
+"to": [
+72,
+0,
+0
+],
+"why": "entrance 0 (183,132)",
+"round": 1
+},
+{
+"kind": "entrance",
+"to": [
+73,
+0,
+0
+],
+"why": "entrance 72 (32,23)",
+"round": 2
+},
+{
+"kind": "event",
+"event": 854,
+"where": [
+"trigger",
+73,
+33,
+47
+],
+"needs_set": [],
+"sets": [
+257
+],
+"battles": [],
+"round": 3
+},
+{
+"kind": "event",
+"event": 1651,
+"where": [
+"trigger",
+489,
+52,
+43
+],
+"needs_set": [
+257
+],
+"sets": [],
+"battles": [],
+"round": 47
+},
+{
+"kind": "entrance",
+"to": [
+491,
+0,
+0
+],
+"why": "entrance 490 (54,54)",
+"round": 48
+},
+{
+"kind": "entrance",
+"to": [
+492,
+0,
+0
+],
+"why": "entrance 491 (26,12)",
+"round": 49
+},
+{
+"kind": "entrance",
+"to": [
+493,
+0,
+0
+],
+"why": "entrance 492 (44,55)",
+"round": 50
+},
+{
+"kind": "event",
+"event": 1677,
+"where": [
+"npc",
+493,
+57,
+34,
+901
+],
+"needs_set": [],
+"sets": [
+369,
+372
+],
+"battles": [
+54
+],
+"round": 51
+},
+{
+"kind": "event",
+"event": 1656,
+"where": [
+"trigger",
+493,
+56,
+40
+],
+"needs_set": [],
+"sets": [],
+"battles": [],
+"round": 52
+},
+{
+"kind": "entrance",
+"to": [
+495,
+0,
+0
+],
+"why": "entrance 494 (28,21)",
+"round": 53
+},
+{
+"kind": "entrance",
+"to": [
+498,
+0,
+0
+],
+"why": "entrance 495 (22,50)",
+"round": 54
+},
+{
+"kind": "entrance",
+"to": [
+496,
+0,
+0
+],
+"why": "entrance 498 (41,59)",
+"round": 55
+},
+{
+"kind": "entrance",
+"to": [
+502,
+0,
+0
+],
+"why": "entrance 496 (22,43)",
+"round": 56
+},
+{
+"kind": "entrance",
+"to": [
+503,
+0,
+0
+],
+"why": "entrance 502 (45,11)",
+"round": 57
+},
+{
+"kind": "entrance",
+"to": [
+497,
+0,
+0
+],
+"why": "entrance 503 (23,47)",
+"round": 58
+},
+{
+"kind": "event",
+"event": 1686,
+"where": [
+"trigger",
+497,
+22,
+11
+],
+"needs_set": [],
+"sets": [
+508
+],
+"battles": [],
+"round": 59
+},
+{
+"kind": "event",
+"event": 1688,
+"where": [
+"trigger",
+505,
+58,
+25
+],
+"needs_set": [],
+"sets": [
+508
+],
+"battles": [],
+"round": 60
+},
+{
+"kind": "event",
+"event": 1690,
+"where": [
+"trigger",
+506,
+28,
+8
+],
+"needs_set": [],
+"sets": [
+508
+],
+"battles": [],
+"round": 61
+},
+{
+"kind": "event",
+"event": 848,
+"where": [
+"trigger",
+72,
+32,
+25
+],
+"needs_set": [],
+"sets": [
+256
+],
+"battles": [],
+"round": 2
+},
+{
+"kind": "event",
+"event": 707,
+"where": [
+"trigger",
+43,
+17,
+32
+],
+"needs_set": [
+256
+],
+"sets": [
+508
+],
+"battles": [],
+"round": 14
+},
+{
+"kind": "event",
+"event": 1692,
+"where": [
+"trigger",
+507,
+23,
+11
+],
+"needs_set": [],
+"sets": [
+508
+],
+"battles": [],
+"round": 62
+},
+{
+"kind": "event",
+"event": 1694,
+"where": [
+"trigger",
+508,
+50,
+34
+],
+"needs_set": [],
+"sets": [
+508
+],
+"battles": [],
+"round": 63
+},
+{
+"kind": "event",
+"event": 1827,
+"where": [
+"trigger",
+509,
+30,
+20
+],
+"needs_set": [],
+"sets": [
+415,
+510
+],
+"battles": [],
+"round": 64
+},
+{
+"kind": "event",
+"event": 1924,
+"where": [
+"trigger",
+509,
+30,
+18
+],
+"needs_set": [
+415
+],
+"sets": [
+261,
+510
+],
+"battles": [
+58
+],
+"round": 64
+}
+]

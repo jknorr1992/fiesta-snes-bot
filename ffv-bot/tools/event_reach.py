@@ -17,6 +17,11 @@ from event_relevance import compute
 from event_vm import Rom
 
 ALL = (1 << 1024) - 1
+# events the data never starts but the story needs (verified by the user from play):
+# first Antlion's Nest climb attempt (194) follows the nest entry scene (223); 195-198 are the later attempts
+FOLLOWS = {223: (194,)}
+# trigger events that are only valid in the context an event creates: 1861 (open water beside the Void ship, map 156) only after 1734/1762 (which call 1732)
+ONLY_AFTER = {1861: (1734, 1762)}
 
 class Reach:
     def __init__(self, rom_path, relevant=True):
@@ -38,6 +43,7 @@ class Reach:
         self.ctx_src, self.flag_src, self.ev_src, self.parked_src = {}, {}, {}, {}
         self.rnd = 0
         self.changed = False
+        self.special = set()    # contexts entered by the Void-ship events (see ONLY_AFTER)
 
     # ---- helpers ----
     def mk(self, w):
@@ -95,6 +101,8 @@ class Reach:
             self.log.append((self.rnd, "event", ev, why))
             self.ev_src[ev] = dict(frm=frm, why=why, conds=self._conds.get(ev, ([], [])), rnd=self.rnd)
             self.changed = True
+        for f in FOLLOWS.get(ev, ()):
+            self.apply_event(f, m, x, y, veh, "follows %d" % ev, frm)
         key = (ev, m, x, y, veh)
         if key not in self._runs:
             r0 = self.sim.run(St(map=m, x=x, y=y, veh=veh, flags=0), ev, [])
@@ -119,7 +127,9 @@ class Reach:
                     self.log.append((self.rnd, "ENDING", ev, why))
                 continue
             if (a.map, a.x, a.y, a.veh) != (m, x, y, veh):
-                self.add_ctx(a.map, a.veh if a.map < WORLD_MAPS else 0, a.x, a.y, "event %d" % ev, kind="event", ev=ev, frm=frm)
+                k2 = self.add_ctx(a.map, a.veh if a.map < WORLD_MAPS else 0, a.x, a.y, "event %d" % ev, kind="event", ev=ev, frm=frm)
+                if ev in (1734, 1762) and a.map == 156 and k2 not in self.special:
+                    self.special.add(k2); self.changed = True
                 if a.map >= WORLD_MAPS and a.parent:
                     ps = self.parents.setdefault(a.map, set())
                     if a.parent not in ps:
@@ -140,6 +150,7 @@ class Reach:
             for x, y, t in md["trig"]:
                 if ok(x, y):
                     for ev in self.runnable(self.rom.trigger_script(t)):
+                        if ev in ONLY_AFTER and k not in self.special: continue
                         self.apply_event(ev, m, x, y, veh, ("trigger", m, x, y), k)
             for n in md["npc"]:
                 if self.S >> (NPC + n["script"]) & 1 and ok(n["x"], n["y"]):

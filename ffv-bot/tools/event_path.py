@@ -15,7 +15,7 @@ from world_model import World, LAND_BIT
 
 NPC = 512
 WORLD_MAPS = 5  # map ids below this are world maps (field-main.asm: cpx #$0005)
-DEBUG_EVENTS = (244, 1939, 1861)  # set every flag: not part of the story
+DEBUG_EVENTS = (244, 1939)  # set every flag: not part of the story
 
 class St:
     __slots__ = ("map", "x", "y", "veh", "parked", "flags", "party", "parent", "ended")
