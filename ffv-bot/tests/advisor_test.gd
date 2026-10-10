@@ -24,7 +24,7 @@ func _initialize() -> void:
 	var c := FFVAdvisor.new()
 	c.load_route()
 	var t := FFVGameState.new()
-	t.map_id = 27
+	t.map_id = 122
 	t.party = [{"level": 1}]
 	c.next_goal(t)
 	t.map_id = 1

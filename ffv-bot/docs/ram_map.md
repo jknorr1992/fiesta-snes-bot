@@ -62,3 +62,4 @@ Map 122 (opening forest), from the ROM tables:
 - Triggers at (27,20), (27,21), (27,22), each only while flag 306 is clear: events 42, 43, 44; event 44 sets flags 306, 455, 562, 510. This is the x=27 column the party walks through before the world checkpoint.
 - Trigger (39,16): if flag 70 set and flag 71 clear -> event 36 (sets 71). Flag 70 is set on map 210 (28,23) event 161 (needs flag 486): story gate for the meteor entrance at (39,15) -> map 123 (21,26). NPCs (script 154) at (39,15) and (36,17).
 - Entrance (9,25)/(9,26) -> world (175,143).
+Note: FFVRam.MAP_ID is now $0AD4 (u16). The old "$0B4F map id 26/27" entries above were that other value; route.json uses ROM map ids (meteor_site = 122).

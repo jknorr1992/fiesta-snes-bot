@@ -15,7 +15,7 @@ const INV_QTY := 0x0740   # 256 slots: quantity
 const IN_LOCAL_MAP := 0x0B53  # 0 on the world map, 1 inside a local map (7 states checked)
 const MOUNT := 0x0ADA  # 7 while riding the chocobo (observed), 2 on foot after the Boco event
 const WORLD_BAND := 0x10000  # world map only: 256x64 tile ids, world row y is band row (y & 63)
-const MAP_ID := 0x0B4F  # local map id: 26 = Tycoon meteor forest, 27 = crater (observed)
+const MAP_ID := 0x0AD4  # u16 ROM map id (the ids used by the ROM trigger/NPC/entrance tables); 122 = opening meteor forest. ($0B4F was a different, misleading value.)
 const EVENT_FLAGS := 0x0A14   # 96 bytes of story/event bits (wiki: $0A14-$0AD3), bit n = byte n>>3, bit n&7
 const EVENT_FLAG_BYTES := 96
 const TREASURE_FLAGS := 0x09D4   # 32 bytes, one bit per opened chest
