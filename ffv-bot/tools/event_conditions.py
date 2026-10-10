@@ -11,12 +11,16 @@ import sys
 def u16(r, o): return r[o] | r[o + 1] << 8
 
 def trigger_script(rom, idx):
+    if idx >= 704:
+        return []
     a, b = u16(rom, 0x18E080 + 2 * idx), u16(rom, 0x18E080 + 2 * (idx + 1))
     data = rom[0x18E080 + a:0x18E080 + b]
     groups, conds, i = [], [], 0
     while i < len(data):
         op = data[i]
         if op == 0xFF:
+            if i + 2 >= len(data):
+                break
             groups.append((conds, data[i + 1] | data[i + 2] << 8)); conds = []; i += 3
         elif op in (0xFE, 0xFD, 0xFC, 0xFB):
             f = data[i + 1] + (256 if op in (0xFC, 0xFB) else 0)
