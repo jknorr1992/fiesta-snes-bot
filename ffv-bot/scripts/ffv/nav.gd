@@ -112,3 +112,59 @@ func goto(goal: Vector2i, max_steps := 200) -> String:
 			if absi(now.x - cur.x) + absi(now.y - cur.y) > 2:
 				return "map_changed"
 	return "stuck"
+
+
+## World map: the tile data is not readable from RAM in a usable form, so walk by trial. Unvisited tiles are
+## assumed open; a move that does not change the position marks that tile blocked (like a player bumping).
+var world_blocked := {}
+
+
+func goto_world(goal: Vector2i, max_steps := 400) -> String:
+	for i in max_steps:
+		var cur := await position()
+		if cur == goal:
+			return "ok"
+		if (await ra.read_u8(FFVRam.IN_LOCAL_MAP)) == 1:
+			return "entered_local_map"
+		if (await ra.read_u8(FFVRam.IN_BATTLE)) == 1:
+			return "battle"
+		var path := _plan_world(cur, goal)
+		if path.is_empty():
+			return "no_path"
+		var d := path[0]
+		var target: Vector2i = cur + DIRS[d]
+		await _press(d, 12)
+		var now := await position()
+		if now == cur:
+			await _press(d, 16)
+			now = await position()
+		if now == cur:
+			world_blocked[target] = true
+	return "stuck"
+
+
+func _plan_world(start: Vector2i, goal: Vector2i) -> Array[String]:
+	var open := [[0, start]]
+	var best := {start: 0}
+	var came := {}
+	var seen := 0
+	while not open.is_empty() and seen < 20000:
+		seen += 1
+		open.sort_custom(func(a, b): return a[0] < b[0])
+		var cur: Vector2i = open.pop_front()[1]
+		if cur == goal:
+			var path: Array[String] = []
+			while came.has(cur):
+				path.push_front(came[cur][1])
+				cur = came[cur][0]
+			return path
+		for d in DIRS:
+			var n: Vector2i = cur + DIRS[d]
+			if world_blocked.has(n) or n.x < 0 or n.y < 0 or n.x > 255 or n.y > 255:
+				continue
+			var g: int = best[cur] + 1
+			if g < best.get(n, 1 << 30):
+				best[n] = g
+				came[n] = [cur, d]
+				open.append([g + absi(n.x - goal.x) + absi(n.y - goal.y), n])
+	return []
