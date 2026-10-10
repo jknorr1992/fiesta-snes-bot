@@ -40,3 +40,10 @@ tools/ffv_decomp.py `world_row()` decodes world-map rows: pointer = u16 at file 
 - Lenna lies at (46,12); stand on (46,13) and interact UP. The scene is ~90 A presses. Afterwards event flags 16 and 562 are set and the party slot 1 gets the in-party bit (0x40). Flag 511 flickers during events.
 - ROM event places: map 27 has events at (45,18) (id 225) and (45,13) (id 228); event data at 0x18E5E0 via offsets at 0x18E080, places via 0xE2400/0xE2800.
 - The world checkpoint (testbed slot 0) is after the goblin battle and naming, per the user.
+
+## Event triggers and their conditions (from github.com/everything8215/ff5, verified on map 27)
+- The user's pointer to everything8215/ff5 (notes/ff5-sfc-rom-map.txt, ff5j.asm) is the better reference. Its offsets are file offsets without a header, same as ours.
+- Event triggers: pointers u16 at 0xE2400 per map, 4-byte entries at 0xE2800 (x, y, trigger script index). Entrance triggers (map exits): pointers at 0xE36C0, 6-byte entries at 0xE3AC0, indexed by LOCAL map id (so "map 0" there is not the world map).
+- Trigger scripts: u16 pointers at 0x18E080, data at 0x18E080 + pointer (704 items): groups of conditions followed by FF + u16 event index. Conditions: FE/FD flag 0-255 set/clear, FC/FB flag 256-511 set/clear, FA/F9/F8/F5 RAM compares, F7 facing, F6 A button. tools/event_conditions.py decodes them.
+- Map 27: trigger (45,18) runs event 1113 if flag 295 is set; trigger (45,13) runs event 1114 if flag 295 is clear and facing direction 2.
+- Event commands $A2/$A4 set and $A3/$A5 clear event flags (0-255 / 256-511); event scripts live at C83320 (pointers) / C849DC.
