@@ -35,7 +35,7 @@ static func read(ra: RetroArchClient) -> FFVGameState:
 	s.gil = FFVRam.u24(misc, FFVRam.GIL - 0x0900)
 	s.map_x = misc[FFVRam.MAP_X - 0x0900]
 	s.map_y = misc[FFVRam.MAP_Y - 0x0900]
-	s.map_id = misc[FFVRam.MAP_ID - 0x0900]
+	s.map_id = misc[FFVRam.MAP_ID - 0x0900] if misc[FFVRam.IN_LOCAL_MAP - 0x0900] == 1 else 0  # 0 = world map
 	var ids := await ra.read_wram(FFVRam.INV_IDS, 256)
 	var qty := await ra.read_wram(FFVRam.INV_QTY, 256)
 	if ids.size() == 256 and qty.size() == 256:

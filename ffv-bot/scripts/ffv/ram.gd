@@ -12,7 +12,9 @@ const MAP_X := 0x0AD8            ## tile x on the current map (world map or loca
 const MAP_Y := 0x0AD9
 const INV_IDS := 0x0640   # 256 slots: item id (0 = empty)
 const INV_QTY := 0x0740   # 256 slots: quantity
-const MAP_ID := 0x0B4F  # 1 = world map, 26 = Tycoon meteor forest, 27 = crater (observed)
+const IN_LOCAL_MAP := 0x0B53  # 0 on the world map, 1 inside a local map (7 states checked)
+const MOUNT := 0x0ADA  # 7 while riding the chocobo (observed), 2 on foot after the Boco event
+const MAP_ID := 0x0B4F  # local map id: 26 = Tycoon meteor forest, 27 = crater (observed)
 const TILE_MAP := 0x10000        ## 64x64 tile ids of the current local map, row-major ($7F0000)
 const TILE_MAP_SIZE := 64
 
