@@ -116,10 +116,11 @@ func goto(goal: Vector2i, max_steps := 200) -> String:
 
 ## World map. The game keeps a rolling 256x64 band of world tile ids at WRAM $10000; world row y lives in
 ## band row (y & 63) and is only valid near the player. Passability is learned by bumping, keyed by tile id.
-var world_known := {135: false}  # ocean; Boko cannot cross it
+var world_known := {135: false, 173: true, 189: true}  # ocean blocks Boko; 173/189 are the crater column's walkable tiles (event overlay, not in ROM)
 var world_entrances := {}       # tile ids that open a town/dungeon/cave
 var last_tid := -1
 var _band_center := 0
+var rom_walk := {}  ## tile id -> bool from FFVRomWorld.walkable_ids; a prior that bump-learning overrides
 var rom_map := PackedByteArray()  ## optional 256x256 static world map from FFVRomWorld; plans beyond the RAM band
 var bumps := {}  # tile id -> failed attempts
 
@@ -146,7 +147,7 @@ func _wcost(band: PackedByteArray, around: Vector2i, p: Vector2i) -> int:
 	if rom_map.is_empty() and absi(p.y - around.y) > 28:
 		return 2  # outside the loaded band: unknown terrain
 	var t := _wtile(band, p)
-	var k = world_known.get(t, null)
+	var k = world_known.get(t, rom_walk.get(t, null))
 	if k == false or (world_entrances.has(t) and p != world_goal):
 		return -1
 	return 1 if k == true else 3

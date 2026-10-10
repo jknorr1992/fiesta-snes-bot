@@ -6,6 +6,7 @@ extends RefCounted
 
 const PTR_TABLE := 0xFE000
 const DATA_BASE := 0x70000
+const PROP_TABLE := 0xFEA00  # 3 bytes per tile id, 192 ids per world
 
 var rom := PackedByteArray()
 var _rows := {}  # world -> PackedByteArray (256*256), filled lazily
@@ -50,4 +51,16 @@ func _row(w: int, y: int) -> PackedByteArray:
 		else:
 			out.append(b)
 	out.resize(256)
+	return out
+
+
+## On-foot passability from the tile property table: byte 0 low nibble = enter-from-each-direction bits
+## (0x4F plains/grass-like, 0x44 mountain/forest, 0x7C ocean; checked against bump-learned results).
+func walkable_ids(w: int) -> Dictionary:
+	var out := {}
+	if rom.is_empty():
+		return out
+	for t in 192:
+		var o := PROP_TABLE + 3 * (192 * w + t)
+		out[t] = (rom[o] & 0x0F) == 0x0F
 	return out

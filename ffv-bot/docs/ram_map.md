@@ -29,3 +29,8 @@ tools/ffv_decomp.py `world_row()` decodes world-map rows: pointer = u16 at file 
 - RAM band at $10000 = ROM world map plus event changes (the crater tiles 157/173/189 at x=175, y=142-144 replace plain tile 5 after the meteor). Nav uses the RAM band near the player and the static ROM map (FFVRomWorld, needs the ROM path) farther away.
 - The start pocket at (175,143) is open to the north (grassland); (181,143) is inside a mountain block, so no_path there is correct, not a walker bug (screenshot checked).
 - Exit table at file 0xE3AC0 (offsets at 0xE36C0): 6-byte entries x,y,destx,desty,destmap,flags. Index space not yet understood (index 46 holds an entry at (175,143)).
+
+## World passability (ROM, checked against bumps)
+- Tile property table at file 0xFEA00, 3 bytes per tile id, 192 ids per world. Byte 0 low nibble 0xF = walkable on foot/chocobo (0x4F plains etc.). 0x44 = mountain (ids 6,7,8,22,23,24,38,39,40,59), 0x7C = ocean/water. FFVRomWorld.walkable_ids() exposes it; nav uses it as a prior under bump learning.
+- From the checkpoint at (175,143) the reachable region is closed (mountains and water): only the crater entrance tile (175,142, id 157) leads out of it, into local map 27 (the meteor forest path; chocobo sprite, enter at (10,26)). The area north of the crater, including the town icon at (183,131), is only reachable through the story, not by walking.
+- ROM exit table at 0xE3AC0 is indexed per local map and is not the world-entrance list. 2x2 town icons use tile ids 147/148/163/164: world 0 has them at (83,76), (210,114), (183,131).
