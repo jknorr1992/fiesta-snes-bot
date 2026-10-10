@@ -32,8 +32,8 @@ def decompress(rom: bytes, off: int, headerless_lzss: bool = False) -> bytes:
 					ring[pos] = b; pos = (pos + 1) & 0x7FF; out.append(b)
 				else:
 					lo, hi = rom[off], rom[off + 1]; off += 2
-					o = lo | (hi & 7) << 8
-					for _ in range((hi >> 3) + 3):
+					o = lo | (hi >> 5) << 8
+					for _ in range((hi & 0x1F) + 3):
 						b = ring[o]; o = (o + 1) & 0x7FF
 						ring[pos] = b; pos = (pos + 1) & 0x7FF; out.append(b)
 		return bytes(out[:n])
