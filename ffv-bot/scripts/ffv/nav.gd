@@ -86,7 +86,12 @@ func goto(goal: Vector2i, max_steps := 200) -> String:
 			return "ok"
 		if (await ra.read_u8(FFVRam.IN_BATTLE)) == 1:
 			return "battle"
+		if i % 6 == 0:
+			tiles = await read_tiles()
 		var path := plan(tiles, cur, goal)
+		if path.is_empty():
+			tiles = await read_tiles()  # the map may have changed under us
+			path = plan(tiles, cur, goal)
 		if path.is_empty():
 			return "no_path"
 		var d := path[0]
