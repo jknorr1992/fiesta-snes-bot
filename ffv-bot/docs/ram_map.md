@@ -34,3 +34,9 @@ tools/ffv_decomp.py `world_row()` decodes world-map rows: pointer = u16 at file 
 - Tile property table at file 0xFEA00, 3 bytes per tile id, 192 ids per world. Byte 0 low nibble 0xF = walkable on foot/chocobo (0x4F plains etc.). 0x44 = mountain (ids 6,7,8,22,23,24,38,39,40,59), 0x7C = ocean/water. FFVRomWorld.walkable_ids() exposes it; nav uses it as a prior under bump learning.
 - From the checkpoint at (175,143) the reachable region is closed (mountains and water): only the crater entrance tile (175,142, id 157) leads out of it, into local map 27 (the meteor forest path; chocobo sprite, enter at (10,26)). The area north of the crater, including the town icon at (183,131), is only reachable through the story, not by walking.
 - ROM exit table at 0xE3AC0 is indexed per local map and is not the world-entrance list. 2x2 town icons use tile ids 147/148/163/164: world 0 has them at (83,76), (210,114), (183,131).
+
+## Opening forest (map 27) facts
+- Talking to an NPC: press the direction toward them (blocked move turns you), then A. Plain A mashing does nothing unless a dialog is already open. nav.interact(dir) does this.
+- Lenna lies at (46,12); stand on (46,13) and interact UP. The scene is ~90 A presses. Afterwards event flags 16 and 562 are set and the party slot 1 gets the in-party bit (0x40). Flag 511 flickers during events.
+- ROM event places: map 27 has events at (45,18) (id 225) and (45,13) (id 228); event data at 0x18E5E0 via offsets at 0x18E080, places via 0xE2400/0xE2800.
+- The world checkpoint (testbed slot 0) is after the goblin battle and naming, per the user.

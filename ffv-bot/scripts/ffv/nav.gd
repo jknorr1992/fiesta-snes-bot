@@ -105,6 +105,16 @@ func clear_dialog(max_presses := 30) -> int:
 	return n
 
 
+## Talk to whatever stands next to us in `dir`: turn towards it (the move is blocked), then press A.
+## Returns true if a dialog opened.
+func interact(dir: String) -> bool:
+	await pad.tap(dir, 8)
+	await tree.create_timer(0.5).timeout
+	await pad.tap("A", 8)
+	await tree.create_timer(0.8).timeout
+	return await dialog_open()
+
+
 func _press(dir: String, frames: int) -> void:
 	await pad.tap(dir, frames)
 	await tree.create_timer(0.2).timeout
