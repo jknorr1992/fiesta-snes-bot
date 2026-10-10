@@ -10,7 +10,8 @@
 | $0B4F | Local map id (26 meteor forest, 27 crater). Not cleared on the world map, so only valid while $0B53 = 1 |
 | $0B53 | 1 inside a local map, 0 on the world map (consistent over 7 checkpoints) |
 | $0ADA | 7 while riding the chocobo, 2 on foot (probably; seen on 7 checkpoints) |
-| $10000 | 64x64 local-map tile id grid (row-major); passability learned at runtime. Tile id 2 = treasure chest |
+| $10000 (world map only) | 256x64 band of world tile ids; world row y is band row (y & 63), valid near the player. 135 = ocean, 12-14/28-30/44-46 = 3x3 mountain blocks, 157/173/189 = the crater entrance column |
+| $10000 (local maps) | 64x64 local-map tile id grid (row-major); passability learned at runtime. Tile id 2 = treasure chest |
 
 Found by WRAM snapshot/diff against checkpoint save states in the test bed (see retroarch-testbed/README.md).
 On the world map position is 0..255 (e.g. 175,143); local maps are 0..63.

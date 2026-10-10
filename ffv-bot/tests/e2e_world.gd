@@ -11,8 +11,10 @@ func _initialize() -> void:
 	pad.open()
 	await ra.autodetect()
 	var nav := FFVNav.new(ra, pad, self)
+	nav.world_entrances = {157: true}  # the crater entrance tile (north of the start), seen in RAM
 	var start := await nav.position()
 	print("start ", start)
-	for g in [start + Vector2i(14, 0), start + Vector2i(14, 12)]:
-		print("goto ", g, " -> ", await nav.goto_world(g), " at ", await nav.position(), " blocked=", nav.world_blocked.size())
+	for g in [start + Vector2i(6, 0), start + Vector2i(6, 6)]:
+		print("goto ", g, " -> ", await nav.goto_world(g), " at ", await nav.position(), " blocked=", nav.world_known.size())
+	print("known ", nav.world_known, " bumps ", nav.bumps, " entr ", nav.world_entrances)
 	quit()

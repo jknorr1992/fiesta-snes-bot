@@ -114,44 +114,102 @@ func goto(goal: Vector2i, max_steps := 200) -> String:
 	return "stuck"
 
 
-## World map: the tile data is not readable from RAM in a usable form, so walk by trial. Unvisited tiles are
-## assumed open; a move that does not change the position marks that tile blocked (like a player bumping).
-var world_blocked := {}
+## World map. The game keeps a rolling 256x64 band of world tile ids at WRAM $10000; world row y lives in
+## band row (y & 63) and is only valid near the player. Passability is learned by bumping, keyed by tile id.
+var world_known := {135: false}  # ocean; Boko cannot cross it
+var world_entrances := {}       # tile ids that open a town/dungeon/cave
+var last_tid := -1
+var bumps := {}  # tile id -> failed attempts
+
+
+func read_world_band() -> PackedByteArray:
+	var out := PackedByteArray()
+	for part in 4:
+		var b := await ra.read_wram(FFVRam.WORLD_BAND + part * 4096, 4096)
+		if b.size() != 4096:
+			return PackedByteArray()
+		out.append_array(b)
+	return out
+
+
+func _wtile(band: PackedByteArray, p: Vector2i) -> int:
+	return band[(p.y & 63) * 256 + p.x]
+
+
+func _wcost(band: PackedByteArray, around: Vector2i, p: Vector2i) -> int:
+	if p.x < 0 or p.y < 0 or p.x > 255 or p.y > 255:
+		return -1
+	if absi(p.y - around.y) > 28:
+		return 2  # outside the loaded band: unknown terrain
+	var t := _wtile(band, p)
+	var k = world_known.get(t, null)
+	if k == false or (world_entrances.has(t) and p != world_goal):
+		return -1
+	return 1 if k == true else 3
+
+
+var world_goal := Vector2i(-1, -1)
+
+
+## One world step; waits until the position stops changing (the chocobo glides a little after a tap).
+func _step_world(d: String) -> Vector2i:
+	await _press(d, 12)
+	var a := await position()
+	for k in 5:
+		await tree.create_timer(0.25).timeout
+		var b := await position()
+		if b == a:
+			break
+		a = b
+	return a
 
 
 func goto_world(goal: Vector2i, max_steps := 400) -> String:
+	world_goal = goal
 	for i in max_steps:
 		var cur := await position()
 		if cur == goal:
 			return "ok"
 		if (await ra.read_u8(FFVRam.IN_LOCAL_MAP)) == 1:
+			if last_tid >= 0:
+				world_entrances[last_tid] = true  # a tile that leads inside; avoid it unless it is the goal
 			return "entered_local_map"
 		if (await ra.read_u8(FFVRam.IN_BATTLE)) == 1:
 			return "battle"
-		var path := _plan_world(cur, goal)
+		var band := await read_world_band()
+		if band.is_empty():
+			return "read_failed"
+		var path := _plan_world(band, cur, goal)
 		if path.is_empty():
 			return "no_path"
 		var d := path[0]
 		var target: Vector2i = cur + DIRS[d]
-		await _press(d, 12)
-		var now := await position()
-		if now == cur:
-			await _press(d, 16)
-			now = await position()
-		if now == cur:
-			world_blocked[target] = true
+		var tid := _wtile(band, target) if absi(target.y - cur.y) <= 28 else -1
+		last_tid = tid
+		var now := await _step_world(d)
+		if tid >= 0:
+			if now == cur:
+				bumps[tid] = int(bumps.get(tid, 0)) + 1
+				if int(bumps[tid]) >= 3 and world_known.get(tid, null) != true:
+					world_known[tid] = false
+			else:
+				world_known[tid] = true
 	return "stuck"
 
 
-func _plan_world(start: Vector2i, goal: Vector2i) -> Array[String]:
-	var open := [[0, start]]
+func _plan_world(band: PackedByteArray, start: Vector2i, goal: Vector2i) -> Array[String]:
+	var buckets := {0: [start]}  # f -> nodes; costs are small ints so a bucket queue is enough
 	var best := {start: 0}
 	var came := {}
+	var f_min := 0
+	var f_max := 0
 	var seen := 0
-	while not open.is_empty() and seen < 20000:
+	while f_min <= f_max and seen < 60000:
+		if not buckets.has(f_min) or buckets[f_min].is_empty():
+			f_min += 1
+			continue
+		var cur: Vector2i = buckets[f_min].pop_back()
 		seen += 1
-		open.sort_custom(func(a, b): return a[0] < b[0])
-		var cur: Vector2i = open.pop_front()[1]
 		if cur == goal:
 			var path: Array[String] = []
 			while came.has(cur):
@@ -160,11 +218,17 @@ func _plan_world(start: Vector2i, goal: Vector2i) -> Array[String]:
 			return path
 		for d in DIRS:
 			var n: Vector2i = cur + DIRS[d]
-			if world_blocked.has(n) or n.x < 0 or n.y < 0 or n.x > 255 or n.y > 255:
+			var c := _wcost(band, start, n)
+			if c < 0:
 				continue
-			var g: int = best[cur] + 1
+			var g: int = best[cur] + c
 			if g < best.get(n, 1 << 30):
 				best[n] = g
 				came[n] = [cur, d]
-				open.append([g + absi(n.x - goal.x) + absi(n.y - goal.y), n])
+				var f: int = g + absi(n.x - goal.x) + absi(n.y - goal.y)
+				f = maxi(f, f_min)
+				if not buckets.has(f):
+					buckets[f] = []
+				buckets[f].append(n)
+				f_max = maxi(f_max, f)
 	return []
