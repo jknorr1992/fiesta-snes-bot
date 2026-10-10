@@ -1,0 +1,14 @@
+; Engine configuration file.
+config_version=5
+
+[application]
+config/name="FFV-Bot"
+run/main_scene="res://scenes/test_bench.tscn"
+config/features=PackedStringArray("4.7")
+
+[display]
+window/size/viewport_width=900
+window/size/viewport_height=600
+
+[debug]
+gdscript/warnings/untyped_declaration=0
