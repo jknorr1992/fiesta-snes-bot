@@ -7,6 +7,8 @@ var gil := 0
 var map_x := 0
 var map_y := 0
 var map_id := 0
+var event_flags := PackedByteArray()  ## 96 bytes from $0A14
+var treasure_flags := PackedByteArray()  ## 32 bytes from $09D4
 var inventory := {}  # item id -> quantity
 var party: Array[Dictionary] = []  ## {slot, flags, job, level, exp, hp, max_hp, mp, max_mp}
 
@@ -42,6 +44,8 @@ static func read(ra: RetroArchClient) -> FFVGameState:
 		for i in 256:
 			if ids[i] != 0 and qty[i] > 0:
 				s.inventory[ids[i]] = int(s.inventory.get(ids[i], 0)) + qty[i]
+	s.event_flags = await ra.read_wram(FFVRam.EVENT_FLAGS, FFVRam.EVENT_FLAG_BYTES)
+	s.treasure_flags = await ra.read_wram(FFVRam.TREASURE_FLAGS, 32)
 	for i in FFVRam.PARTY_SLOTS:
 		var o := i * FFVRam.PARTY_STRIDE
 		s.party.append({
@@ -56,6 +60,11 @@ static func read(ra: RetroArchClient) -> FFVGameState:
 			"max_mp": FFVRam.u16(party_bytes, o + FFVRam.C_MAX_MP),
 		})
 	return s
+
+
+func event_flag(n: int) -> bool:
+	var i := n >> 3
+	return i < event_flags.size() and (event_flags[i] >> (n & 7)) & 1 == 1
 
 
 func describe() -> String:
