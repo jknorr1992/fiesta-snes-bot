@@ -63,3 +63,6 @@ Map 122 (opening forest), from the ROM tables:
 - Trigger (39,16): if flag 70 set and flag 71 clear -> event 36 (sets 71). Flag 70 is set on map 210 (28,23) event 161 (needs flag 486): story gate for the meteor entrance at (39,15) -> map 123 (21,26). NPCs (script 154) at (39,15) and (36,17).
 - Entrance (9,25)/(9,26) -> world (175,143).
 Note: FFVRam.MAP_ID is now $0AD4 (u16). The old "$0B4F map id 26/27" entries above were that other value; route.json uses ROM map ids (meteor_site = 122).
+
+## Correction: opening forest flow (verified by replaying from the new-game state)
+Crater -> Boco event -> walk to (27,21) (goblin battle, flag 306) -> name entry -> Lenna/Galuf scene at (46,13): flag 16 set, then exit (9,25) -> world (175,143). (39,15) -> map 123 is a much later return, not part of the opening, so flags 70/71 do not gate Galuf. The scanner's "sets" lists miss flags set through chained events (flag 16 shows only on map 208 but is set by the 477/478 chain). On the world map the pocket around (175,143) is 324 walkable tiles with entrances (183,132)/(184,132) -> map 72 on tiles whose low property nibble is D; pathing must treat the goal tile as enterable.

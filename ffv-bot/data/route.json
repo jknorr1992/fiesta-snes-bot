@@ -23,15 +23,15 @@
   },
   {
    "id": "reach_galuf",
-   "title": "Reach Galuf at the meteor site",
+   "title": "Meet Lenna and Galuf in the forest",
    "verified": true,
    "needs": [
     "first_battle"
    ],
    "when": {
-    "flag": 71
+    "flag": 16
    },
-   "note": "Event 36 at (39,16) sets flag 71 (needs flag 70 from map 210). Unverified in play."
+   "note": "Flag 16 is set once the Lenna/Galuf scene on map 122 has played (verified from a new-game replay). (39,15) is a much later return to this map."
   },
   {
    "id": "leave_forest",

@@ -20,3 +20,7 @@ RAM address mapping (libretro may expose WRAM at 0x7E0000 or at 0x0). Step 2 wil
 ## Map viewer (scenes/map_view.tscn)
 Open this scene instead of the test bench to see the bot's view of the maps: the static world map from your ROM (colour = tile id, darker = blocked by the ROM property table) and, with "Follow RetroArch" ticked, the live player position and the current local map. Click a tile, name it, press Add marker; Link start/end joins two markers. Export writes the JSON (marks + links) to the path in the export field, e.g. a file inside the project folder, which can then be handed back to Claude.
 With "Follow RetroArch" on, "Auto-link map transitions" (default on) records every map change: it drops an entrance/exit marker where you left the old map and one where you arrived, and links them, e.g. world tile (175,142) -> local map 27 (10,26). Walk through an entrance and back to build the pairs; adjust names and export as usual.
+
+## Run the bot
+
+`godot --path ffv-bot` opens the bot runner (the main scene): enter the RetroArch host, optionally the ROM path (loads the world map), press Connect, then Start bot. It handles battles, dialog and the opening forest, explores local maps, and shows the advisor's next goals; Stop interrupts it between actions. The name entry screen has no RAM flag yet, so press "Confirm name screen" when it appears. The old test bench is `scenes/test_bench.tscn`.

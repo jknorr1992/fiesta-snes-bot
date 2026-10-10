@@ -197,8 +197,10 @@ func _wcost(band: PackedByteArray, around: Vector2i, p: Vector2i) -> int:
 	if rom_map.is_empty() and absi(p.y - around.y) > 28:
 		return 2  # outside the loaded band: unknown terrain
 	var t := _wtile(band, p)
+	if p == world_goal:
+		return 1  # the goal itself is always enterable (entrance tiles are low-nibble-D in the ROM, so rom_walk calls them blocked)
 	var k = world_known.get(t, rom_walk.get(t, null))
-	if k == false or (world_entrances.has(t) and p != world_goal):
+	if k == false or world_entrances.has(t):
 		return -1
 	return 1 if k == true else 3
 
