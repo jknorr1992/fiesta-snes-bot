@@ -119,6 +119,8 @@ func goto(goal: Vector2i, max_steps := 200) -> String:
 var world_known := {135: false}  # ocean; Boko cannot cross it
 var world_entrances := {}       # tile ids that open a town/dungeon/cave
 var last_tid := -1
+var _band_center := 0
+var rom_map := PackedByteArray()  ## optional 256x256 static world map from FFVRomWorld; plans beyond the RAM band
 var bumps := {}  # tile id -> failed attempts
 
 
@@ -133,13 +135,15 @@ func read_world_band() -> PackedByteArray:
 
 
 func _wtile(band: PackedByteArray, p: Vector2i) -> int:
+	if not rom_map.is_empty() and absi(p.y - _band_center) > 28:
+		return rom_map[p.y * 256 + p.x]  # outside the live band: static map (event changes such as the crater are missing)
 	return band[(p.y & 63) * 256 + p.x]
 
 
 func _wcost(band: PackedByteArray, around: Vector2i, p: Vector2i) -> int:
 	if p.x < 0 or p.y < 0 or p.x > 255 or p.y > 255:
 		return -1
-	if absi(p.y - around.y) > 28:
+	if rom_map.is_empty() and absi(p.y - around.y) > 28:
 		return 2  # outside the loaded band: unknown terrain
 	var t := _wtile(band, p)
 	var k = world_known.get(t, null)
@@ -176,6 +180,7 @@ func goto_world(goal: Vector2i, max_steps := 400) -> String:
 			return "entered_local_map"
 		if (await ra.read_u8(FFVRam.IN_BATTLE)) == 1:
 			return "battle"
+		_band_center = cur.y
 		var band := await read_world_band()
 		if band.is_empty():
 			return "read_failed"
@@ -184,7 +189,7 @@ func goto_world(goal: Vector2i, max_steps := 400) -> String:
 			return "no_path"
 		var d := path[0]
 		var target: Vector2i = cur + DIRS[d]
-		var tid := _wtile(band, target) if absi(target.y - cur.y) <= 28 else -1
+		var tid := _wtile(band, target) if (not rom_map.is_empty() or absi(target.y - cur.y) <= 28) else -1
 		last_tid = tid
 		var now := await _step_world(d)
 		if tid >= 0:

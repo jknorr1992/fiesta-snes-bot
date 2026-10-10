@@ -24,3 +24,8 @@ Unknown so far: dialog flag, menu/battle-cursor state, story flags, treasure-ope
 
 ## Static world map from ROM (verified)
 tools/ffv_decomp.py `world_row()` decodes world-map rows: pointer = u16 at file offset 0xFE000 + 512*world + 2*y, data at 0x70000 + pointer. For world 0, rows 136-149 match the RAM band at $10000 exactly except the 3 tiles around the player (entity overlay at x=175). So the whole world map is available without walking it. The ROM has no copier header (CF/E000 = file 0xFE000).
+
+## World map notes
+- RAM band at $10000 = ROM world map plus event changes (the crater tiles 157/173/189 at x=175, y=142-144 replace plain tile 5 after the meteor). Nav uses the RAM band near the player and the static ROM map (FFVRomWorld, needs the ROM path) farther away.
+- The start pocket at (175,143) is open to the north (grassland); (181,143) is inside a mountain block, so no_path there is correct, not a walker bug (screenshot checked).
+- Exit table at file 0xE3AC0 (offsets at 0xE36C0): 6-byte entries x,y,destx,desty,destmap,flags. Index space not yet understood (index 46 holds an entry at (175,143)).

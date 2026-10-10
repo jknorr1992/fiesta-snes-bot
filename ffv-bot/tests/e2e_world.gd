@@ -12,6 +12,10 @@ func _initialize() -> void:
 	await ra.autodetect()
 	var nav := FFVNav.new(ra, pad, self)
 	nav.world_entrances = {157: true}  # the crater entrance tile (north of the start), seen in RAM
+	if OS.has_environment("FFV_ROM"):
+		var rw := FFVRomWorld.new()
+		if rw.load_rom(OS.get_environment("FFV_ROM")):
+			nav.rom_map = rw.world(0)
 	var start := await nav.position()
 	print("start ", start)
 	for g in [start + Vector2i(6, 0), start + Vector2i(6, 6)]:
