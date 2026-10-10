@@ -64,3 +64,23 @@ func walkable_ids(w: int) -> Dictionary:
 		var o := PROP_TABLE + 3 * (192 * w + t)
 		out[t] = (rom[o] & 0x0F) == 0x0F
 	return out
+
+
+const ENTRANCE_PTRS := 0xE36C0  # u16 pointers relative to this address, 6-byte entries
+
+
+## Entrances of ROM map `m` (world maps are 0, 1, 2): {x, y, dest_map, dx, dy, flags}.
+## Entry bytes: x, y, dest map (u16, low 9 bits), dest x, dest y (the flags live in the high bits of the map word).
+func entrances(m: int) -> Array:
+	var out: Array = []
+	if rom.is_empty():
+		return out
+	var a: int = rom[ENTRANCE_PTRS + 2 * m] | (rom[ENTRANCE_PTRS + 2 * m + 1] << 8)
+	var b: int = rom[ENTRANCE_PTRS + 2 * m + 2] | (rom[ENTRANCE_PTRS + 2 * m + 3] << 8)
+	var i := a
+	while i < b:
+		var o := ENTRANCE_PTRS + i
+		out.append({"x": rom[o], "y": rom[o + 1], "dest_map": (rom[o + 2] | (rom[o + 3] << 8)) & 0x1FF, "dx": rom[o + 4], "dy": rom[o + 5],
+				"flags": rom[o + 3] >> 1})
+		i += 6
+	return out

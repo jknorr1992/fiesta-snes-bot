@@ -248,6 +248,12 @@ func _draw_canvas() -> void:
 		var c := (Vector2(m.x, m.y) + Vector2(0.5, 0.5)) * zoom + pan
 		canvas.draw_circle(c, maxf(zoom, 4.0), Color(1, 0.9, 0.1))
 		canvas.draw_string(ThemeDB.fallback_font, c + Vector2(6, -6), "%d %s" % [i, m.name], HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color.WHITE)
+	if view_key.begins_with("world"):
+		for e in rom_world.entrances(int(view_key.substr(5))):
+			var c := (Vector2(e.x, e.y) + Vector2(0.5, 0.5)) * zoom + pan
+			canvas.draw_rect(Rect2(c - Vector2(3, 3), Vector2(6, 6)), Color(0.2, 1, 1))
+			if zoom >= 4.0:
+				canvas.draw_string(ThemeDB.fallback_font, c + Vector2(5, 12), "->%d" % e.dest_map, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.6, 1, 1))
 	for l in links:
 		var a: Dictionary = marks[l.a]
 		var b: Dictionary = marks[l.b]
