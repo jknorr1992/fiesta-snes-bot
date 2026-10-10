@@ -4,7 +4,7 @@ Saves a state to slot N after each step (slot = step index mod 9 + 1 is NOT used
 import sys, os, json, time, shutil
 sys.path.insert(0, os.path.dirname(__file__))
 from collections import deque
-from play_nav import Nav
+from play_nav import Nav, DIRS
 from event_vm import Rom
 from map_render import Maps, u16
 from ffv_decomp import decompress
@@ -18,7 +18,7 @@ class Runner:
     def __init__(self):
         self.n = Nav(ROM); self.rom = Rom(ROM)
         self.steps = json.load(open(os.path.join(HERE, "..", "data", "event_path.json")))
-        self.veh = None
+        self.veh = None; self.bad = set(); self._grids = {}
         self.maps = Maps(open(ROM, 'rb').read()); self._exits = {}
         for m in range(512):
             try: self.n.avoid[m] = {(e['x'], e['y']) for e in self.rom.entrances(m)}
@@ -44,17 +44,53 @@ class Runner:
             except Exception: self._exits[m] = False
         return self._exits[m]
 
+    def grid_rom(self, m):
+        """Tile ids and property bytes of local map m straight from the ROM (same data the engine copies to WRAM)."""
+        if m not in self._grids:
+            rom = self.maps.r; p = self.maps.props(m)
+            lay = self.maps.layout(((p[12] | p[13] << 8) & 0x3FF) - 1)
+            pr = decompress(rom, 0xFC540 + u16(rom, 0xFC540 + 2 * p[5]), True)
+            self._grids[m] = (list(lay), bytes(pr))
+        return self._grids[m]
+
+    def reach_entrances(self, m, x, y):
+        """Entrances of local map m that can be walked to from tile (x, y) (flood fill with the engine movement rule)."""
+        ids, props = self.grid_rom(m)
+        ents = {(e["x"], e["y"]): e for e in self.rom.entrances(m)}
+        seen, st, hit = {(x, y)}, [(x, y)], []
+        while st:
+            c = st.pop()
+            for d, (dx, dy) in DIRS.items():
+                n = (c[0] + dx, c[1] + dy)
+                if n in seen or not (0 <= n[0] < 64 and 0 <= n[1] < 64): continue
+                if not self.n.can_move(ids, props, c, n, d): continue
+                seen.add(n)
+                if n in ents: hit.append(ents[n])
+                else: st.append(n)
+        return hit
+
     def route_maps(self, a, b):
-        q, prev = deque([a]), {a: None}
+        """BFS over (map, arrival tile) nodes: local maps may hold several disconnected rooms."""
+        _, x0, y0, _l = self.n.pos()
+        start = (a, x0, y0)
+        q, prev = deque([start]), {start: None}
         while q:
-            m = q.popleft()
+            node = q.popleft(); m, x, y = node
             if m == b: break
-            for dm, x, y in self.edges(m):
-                if dm not in prev: prev[dm] = (m, x, y); q.append(dm)
-            if m >= 3 and b < 3 and b not in prev and self.has_exit(m): prev[b] = (m, -1, -1); q.append(b)
-        if b not in prev: return None
-        path, c = [], b
-        while prev[c]: p = prev[c]; path.append((p[0], p[1], p[2], c)); c = p[0]
+            if m < 3:
+                outs = [(e, e["map"], e["dx"] & 0x3F, e["dy"] & 0x3F) for e in self.rom.entrances(m)]
+            else:
+                outs = [(e, e["map"], e["dx"] & 0x3F, e["dy"] & 0x3F) for e in self.reach_entrances(m, x, y)]
+                if b < 3 and self.has_exit(m): outs.append(({"x": -1, "y": -1}, b, 0, 0))
+            for e, dm, dx, dy in outs:
+                if (m, e["x"], e["y"]) in self.bad: continue
+                nn = (dm, dx, dy) if dm >= 3 else (dm, 0, 0)
+                if dm == b: nn = (dm, dx, dy)
+                if nn not in prev: prev[nn] = (node, e["x"], e["y"]); q.append(nn)
+        end = next((n for n in prev if n[0] == b), None)
+        if end is None: return None
+        path, c = [], end
+        while prev[c]: p = prev[c]; path.append((p[0][0], p[1], p[2], c[0])); c = p[0]
         return path[::-1]
 
     def go_map(self, target):
@@ -71,6 +107,7 @@ class Runner:
                 res = self.n.leave_map(); self.say("  leave map", fm, res, self.n.pos()); self.n.dialog(); time.sleep(0.5); continue
             r = self.n.goto(x, y, self.veh)
             self.say("  entrance", fm, (x, y), "->", dm, r, self.n.pos())
+            if r == "nopath": self.bad.add((fm, x, y)); continue    # unreachable entrance on foot: try another route
             if r not in ("mapchange", "arrived"): return False
             self.n.dialog(); time.sleep(0.5)
         return False
