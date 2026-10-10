@@ -11,6 +11,7 @@ from world_model import World
 DIRS = {"UP": (0, -1), "DOWN": (0, 1), "LEFT": (-1, 0), "RIGHT": (1, 0)}
 
 class Nav(Game):
+    _void = {}
     def __init__(self, rom_path, fast=1.0):
         super().__init__(fast=fast)
         self.world = World(open(rom_path, "rb").read())
@@ -158,7 +159,19 @@ class Nav(Game):
         if not (b2c & self.SIDE[d]) and not (b2c & 0x40): return False
         return bool(b1n & ((b1c & 3) | 4))
 
+    def void_id(self, map_id, ids, props):
+        """The filler tile that covers most of a cave/mountain map (black rock). Its props say open, but it is outside the playable area."""
+        v = self._void.get(map_id)
+        if v is None:
+            import collections
+            t, n = collections.Counter(bytes(ids[:4096])).most_common(1)[0]
+            v = t if n > 1500 and 2 * t < len(props) and props[2 * t] & 0x08 else -1   # grass fills big maps too, but its props lack bit 0x08
+            self._void[map_id] = v
+        return v
+
     def can_move_m(self, map_id, ids, props, c, n, d):
+        v = self.void_id(map_id, ids, props)
+        if v >= 0 and max(c[1] * 64 + c[0], n[1] * 64 + n[0]) < len(ids) and ids[n[1] * 64 + n[0]] == v and (ids[c[1] * 64 + c[0]] == v or n not in self.avoid.get(map_id, ())): return False   # doors sit on the filler tile
         return self.can_move(ids, props, c, n, d)
 
     def hop_edges(self, map_id, c):
