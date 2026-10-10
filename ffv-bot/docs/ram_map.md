@@ -53,3 +53,12 @@ tools/ffv_decomp.py `world_row()` decodes world-map rows: pointer = u16 at file 
 ## World entrances (ROM, decoded)
 Entrance triggers: u16 pointers at 0xE36C0 (relative to 0xE36C0), 6-byte entries x, y, dest map (u16, low 9 bits), dest x, dest y. ROM map 0 is world 1 (27 entries, e.g. (183,132) -> map 72 at (32,45), (121,91) -> map 125, (210,115) -> map 89, (182,52) -> map 27, ...), maps 1 and 2 are worlds 2 and 3. Map 122 (the opening forest exit) leads (9,25)/(9,26) -> world (175,143). FFVRomWorld.entrances(m) returns them; the map viewer draws them as cyan squares labelled with the destination map.
 The ROM map numbers differ from the RAM $0B4F value; RAM-to-ROM map mapping is still to be established (the post-Boco forest area matches ROM map 165's trigger coordinates).
+
+## Map ids: RAM $0AD4/$110C = ROM map id (u16)
+RAM $0AD4 (also $110C) holds the same map id the ROM tables use (the opening forest is ROM map 122; $0B4F = 27 is something else). Use this for trigger/NPC/entrance lookups.
+Map 122 (opening forest), from the ROM tables:
+- Trigger (16,21): if flag 16 clear -> event 40 (clears 511): the Boco event. NPC (16,21) runs event 1098 (sets 511, clears 510).
+- Triggers (46,13) facing up+A and (47,12) facing left+A, if flag 16 clear: events 477/478 (Lenna). NPCs at (46,11)/(46,12).
+- Triggers at (27,20), (27,21), (27,22), each only while flag 306 is clear: events 42, 43, 44; event 44 sets flags 306, 455, 562, 510. This is the x=27 column the party walks through before the world checkpoint.
+- Trigger (39,16): if flag 70 set and flag 71 clear -> event 36 (sets 71). Flag 70 is set on map 210 (28,23) event 161 (needs flag 486): story gate for the meteor entrance at (39,15) -> map 123 (21,26). NPCs (script 154) at (39,15) and (36,17).
+- Entrance (9,25)/(9,26) -> world (175,143).
