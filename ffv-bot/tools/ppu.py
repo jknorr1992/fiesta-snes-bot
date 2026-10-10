@@ -51,6 +51,7 @@ class PPU:
         self.scroll = scroll or {}          # {1: (h, v), 2: (h, v), 3: (h, v)}
         self.hdma = hdma or {}
         self._chars = {}
+        self.bgmaps = {}
         self.m7 = {"a": 0x100, "b": 0, "c": 0, "d": 0x100, "cx": 0, "cy": 0, "hofs": 0, "vofs": 0}
 
     def chars(self, bpp):
@@ -64,15 +65,19 @@ class PPU:
     # ---- backgrounds ----
     def bg_plane(self, n, mode):
         """full wrapped BG plane: (palette-local colour index array, palette number array, priority array, size) for BG n (1-3)"""
-        sc = self.regs.get(0x2106 + n, 0)
-        base = (sc & 0xFC) << 8                           # word address
-        size = sc & 3                                     # 0: 32x32, 1: 64x32, 2: 32x64, 3: 64x64
-        wt, ht = (64 if size & 1 else 32), (64 if size & 2 else 32)
         bpp = 4 if (mode == 1 and n < 3) else 2
         nba = self.regs.get(0x210B if n <= 2 else 0x210C, 0)
         cbase = ((nba >> (4 * ((n - 1) & 1))) & 0xF) << 12
         chars = self.chars(bpp)
         csz = 16 if bpp == 4 else 8                       # words per char
+        if n in self.bgmaps:                              # tilemap supplied directly (e.g. a whole 128x128 field map instead of VRAM's 64x32 window)
+            tm = self.bgmaps[n]
+            ht, wt = tm.shape
+            return self._plane_from_tilemap(tm, ht, wt, cbase, csz, chars, bpp)
+        sc = self.regs.get(0x2106 + n, 0)
+        base = (sc & 0xFC) << 8                           # word address
+        size = sc & 3                                     # 0: 32x32, 1: 64x32, 2: 32x64, 3: 64x64
+        wt, ht = (64 if size & 1 else 32), (64 if size & 2 else 32)
         mp = np.frombuffer(self.vram, dtype="<u2")
         # screens: 32x32 blocks of 0x400 words; layout 64x32 = [A B], 32x64 = [A / B], 64x64 = [A B / C D]
         tm = np.zeros((ht, wt), dtype=np.uint16)
@@ -83,6 +88,10 @@ class PPU:
                 else: off = sy * 2 + sx
                 tm[sy * 32:(sy + 1) * 32, sx * 32:(sx + 1) * 32] = mp[(base + off * 0x400) & 0xFFFF:][:0x400].reshape(32, 32) \
                     if ((base + off * 0x400) & 0xFFFF) + 0x400 <= 0x10000 else 0
+        return self._plane_from_tilemap(tm, ht, wt, cbase, csz, chars, bpp)
+
+    @staticmethod
+    def _plane_from_tilemap(tm, ht, wt, cbase, csz, chars, bpp):
         tile = tm & 0x3FF
         ci = ((cbase // csz) + tile) % (len(chars))
         px = chars[ci]                                    # (ht, wt, 8, 8)
