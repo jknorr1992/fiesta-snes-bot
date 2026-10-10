@@ -72,6 +72,21 @@ func plan(tiles: PackedByteArray, start: Vector2i, goal: Vector2i) -> Array[Stri
 	return []
 
 
+## True while a message window is open (WRAM $0B57, verified: 1 during the Boco dialog, 0 after).
+func dialog_open() -> bool:
+	return (await ra.read_u8(FFVRam.DIALOG_OPEN)) == 1
+
+
+## Press A until the dialog closes (or give up). Returns how many presses it took.
+func clear_dialog(max_presses := 30) -> int:
+	var n := 0
+	while n < max_presses and await dialog_open():
+		await _press("A", 4)
+		await tree.create_timer(0.4).timeout
+		n += 1
+	return n
+
+
 func _press(dir: String, frames: int) -> void:
 	await pad.tap(dir, frames)
 	await tree.create_timer(0.2).timeout
@@ -88,6 +103,9 @@ func goto(goal: Vector2i, max_steps := 200) -> String:
 			return "battle"
 		if i % 6 == 0:
 			tiles = await read_tiles()
+		if await dialog_open():
+			await clear_dialog()
+			continue
 		var path := plan(tiles, cur, goal)
 		if path.is_empty():
 			tiles = await read_tiles()  # the map may have changed under us
@@ -99,6 +117,9 @@ func goto(goal: Vector2i, max_steps := 200) -> String:
 		var tid := _tile(tiles, target)
 		await _press(d, step_frames)
 		var now := await position()
+		if now == cur and await dialog_open():
+			await clear_dialog()
+			continue  # an event interrupted the step; not evidence that the tile is blocked
 		if now == cur:
 			await _press("A", 4)  # a dialog may be eating the input
 			await tree.create_timer(0.6).timeout
@@ -238,3 +259,49 @@ func _plan_world(band: PackedByteArray, start: Vector2i, goal: Vector2i) -> Arra
 				buckets[f].append(n)
 				f_max = maxi(f_max, f)
 	return []
+
+
+## Local-map frontier exploration: repeatedly walk to the nearest reachable tile that has not been visited yet,
+## preferring tiles whose id is still unknown. Stops on a map change or battle. Returns the reason.
+var visited := {}  # Vector2i -> true, for the current map
+
+
+func _nearest_unvisited(tiles: PackedByteArray, start: Vector2i) -> Vector2i:
+	var seen := {start: true}
+	var q: Array[Vector2i] = [start]
+	var i := 0
+	var fallback := Vector2i(-1, -1)
+	while i < q.size():
+		var cur := q[i]
+		i += 1
+		if not visited.has(cur) and cur != start:
+			if not known.has(_tile(tiles, cur)):
+				return cur
+			if fallback.x < 0:
+				fallback = cur
+		for d in DIRS:
+			var n: Vector2i = cur + DIRS[d]
+			if seen.has(n) or _cost(tiles, n) < 0:
+				continue
+			seen[n] = true
+			q.append(n)
+	return fallback
+
+
+func explore(max_goals := 40) -> String:
+	var map0 := await ra.read_u8(FFVRam.MAP_ID)
+	visited.clear()
+	for g in max_goals:
+		var cur := await position()
+		visited[cur] = true
+		var tiles := await read_tiles()
+		var goal := _nearest_unvisited(tiles, cur)
+		if goal.x < 0:
+			return "explored"
+		var r := await goto(goal, 60)
+		visited[goal] = true
+		if r == "battle" or r == "map_changed":
+			return r
+		if (await ra.read_u8(FFVRam.MAP_ID)) != map0 or (await ra.read_u8(FFVRam.IN_LOCAL_MAP)) == 0:
+			return "map_changed"
+	return "budget"

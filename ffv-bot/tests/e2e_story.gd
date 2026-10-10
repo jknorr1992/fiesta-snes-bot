@@ -8,8 +8,11 @@ func _initialize() -> void:
 	ra.open(); pad.open(); await ra.autodetect()
 	var nav := FFVNav.new(ra, pad, self)
 	var s0 := await FFVGameState.read(ra)
-	var r := await nav.goto_world(Vector2i(175, 142), 20)
-	print("goto crater tile -> ", r)
+	if (await ra.read_u8(FFVRam.IN_LOCAL_MAP)) == 0:
+		print("goto crater tile -> ", await nav.goto_world(Vector2i(175, 142), 20))
+		await create_timer(2.0).timeout
+	if (await ra.read_u8(FFVRam.IN_LOCAL_MAP)) == 1:
+		print("goto (16,20) -> ", await nav.goto(Vector2i(16, 20)))
 	var prev := ""
 	for i in int(OS.get_environment("STEPS") if OS.has_environment("STEPS") else "60"):
 		await pad.tap("A", 6)
