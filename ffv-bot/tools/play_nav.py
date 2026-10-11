@@ -75,13 +75,44 @@ class Nav(Game):
             self.wait(3)
         return last
 
-    def fight(self, limit=1500):
-        """Win the current battle with cheats; returns True when the battle flag cleared."""
+    def battle_state(self):
+        """(in battle, battle-over code, menu open for party slot or None) from the battle RAM (addresses from ffv-bot/battle/sim.py):
+        $0018 battle flag, $7BDE battle-over (0x80 victory, 0x40 party KO, 1 escaped), $41B0 command menu open, $41CC menu character."""
+        inb = self.u8(0x18) == 1
+        o = self.read(0x41B0, 0x1D)
+        over = self.u8(0x7BDE)
+        cur = o[0x1C]
+        return inb, over, (cur if o[0] == 1 and cur < 4 else None)
+
+    def fight(self, limit=4000):
+        """Win the current battle (enemy HP cheats), driven by the battle state instead of blind A presses: only act when a command menu is
+        open (reset the remembered cursor to the first command, Fight, confirm the first target), dismiss the result windows once the
+        battle is over, and when a menu stays open too long (stuck in a sub-menu such as Item) cancel with B and start over.
+        Returns True when the battle flag cleared."""
         self.wait(180)                  # let the battle load: writing the cheats while the battle graphics load can hang the game (black screen)
+        menu_since = None; menu_char = None; tries = 0; tick = 0
         for i in range(limit):
-            if self.u8(0x18) != 1: return True
-            self.cheat_battle()
-            self.press("A", 3, 3)
+            inb, over, mc = self.battle_state()
+            if not inb: return True
+            tick += 1
+            if tick % 6 == 0: self.cheat_battle()
+            if over:
+                self.press("A", 3, 12); menu_since = None; continue
+            if mc is None:
+                menu_since = None; self.wait(2); continue
+            if mc != menu_char or menu_since is None: menu_char, menu_since, tries = mc, i, 0
+            if i - menu_since > 40 * (tries + 1):          # same menu still open: stuck in a sub-menu or a missed press
+                tries += 1
+                print("   battle menu stuck (char %d, try %d): cancelling" % (mc, tries), flush=True)
+                for _ in range(3): self.press("B", 3, 6)
+            cur = self.u8(0x42D + mc) if self.u8(0x426) & 0x80 == 0 else 0
+            for _ in range(8):                             # command cursor memory: go back to the first command (Fight)
+                if cur == 0: break
+                self.press("UP", 3, 6); cur = self.u8(0x42D + mc)
+            self.press("A", 3, 8)                          # Fight
+            self.wait(10)
+            if self.battle_state()[2] == mc: self.press("A", 3, 8)      # confirm the (first) target
+            self.wait(20)
         return False
 
     def busy(self):
