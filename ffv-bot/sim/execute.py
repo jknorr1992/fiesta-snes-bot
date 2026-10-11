@@ -1,10 +1,11 @@
 """Play a simulator macro-path on the emulator test bed (pad input only, dev cheats for battles) and compare the live game with the
 simulation after every action: map, position and event flags. Position is never written."""
-import sys, os, time, pickle
+import sys, os, time, pickle, collections
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools"))
 from sim import *
 from rom import require_rom
+from localmap import LocalMap
 from play_nav import Nav
 from play import IDS
 
@@ -56,6 +57,35 @@ class Exec(Nav):
             if act.kind != "turn": self.press("A", 4, 10)
         self.settle()
 
+    def live_blocked(self, m, x, y):
+        """tiles of the objects (NPCs) in the live object table of the current map ($1477, 0x14 bytes each: tile x +1, tile y +3), minus the party tile"""
+        raw = self.read(0x1477, 0x14 * 27); out = set()
+        for i in range(27):
+            o = raw[0x14 * i:0x14 * i + 0x14]
+            if o[8] | o[9] << 8 and (o[1], o[3]) != (x, y): out.add((o[1] & 63, o[3] & 63))
+        return out
+
+    def reroute(self, target, avoid=()):
+        """A* (BFS) from the live position to tile `target` of the current local map using the live tile ids and the live object positions.
+        -> direction list or None"""
+        m, x, y = self.fpos()
+        if m < 5: return None
+        base = LocalMap(self.S.R, m)
+        ids = b"".join(self.read(0x10000 + i, 1024) for i in range(0, 4096, 1024))
+        mods = {(i % 64, i // 64): ids[i] for i in range(4096) if ids[i] != base.layer[i]}
+        lm = LocalMap(self.S.R, m, mods, self.live_blocked(m, x, y) | set(avoid))
+        z = lm.z_after(lm.props(x, y)[0], 0)
+        start = (x, y, z); prev = {start: None}; q = collections.deque([start])
+        while q:
+            c = q.popleft()
+            if (c[0], c[1]) == tuple(target):
+                path = []
+                while prev[c]: c, d = prev[c]; path.append(d)
+                return path[::-1]
+            for d, n in lm.moves(*c):
+                if n not in prev: prev[n] = (c, d); q.append(n)
+        return None
+
     def walk_dirs(self, dirs):
         """walk with one tap per tile (hold-and-poll proved unreliable). Auto-move tiles (conveyors) can advance the party past the
         tile just stepped on, so a position that matches a later tile of the path is accepted too. Stops on a mismatch."""
@@ -67,25 +97,38 @@ class Exec(Nav):
         for d in dirs:
             x, y = (x + DX[d][0]) & mask, (y + DX[d][1]) & mask; tiles.append((x, y))
         k = 0                                   # tiles[0:k] done
-        stall = 0; post_battle = False
+        stall = 0; post_battle = False; reroutes = 0; rerouted = False; n0 = len(dirs)
         while k < len(dirs):
             if k and dirs[k] != dirs[k - 1]: self.wait(24)
             moved, p = self.step(BTN[dirs[k]])
             if self.u8(0x18) == 1 or (not moved and self.u8(0xB57)):       # random battle (or a message box): win it, then go on
+                print("   battle during the walk at %s" % (self.pos(),), flush=True)
                 self.fight(); post_battle = True; [self.press('A', 3, 20) for _ in range(20 if self.u8(0xB53) == 0 else 8)]; self.settle(); p = self.pos()
                 if (p[1], p[2]) == (tiles[k - 1] if k else (cx, cy)): continue     # battle came before the step: redo it
-            if p[0] != m0: return k + 1, self.pos()
+            if p[0] != m0: return (n0 if rerouted else k + 1), self.pos()
             cur = (p[1], p[2])
             j = next((i for i in range(k, min(k + 4, len(tiles))) if tiles[i] == cur), None)
+            if j is None and cur == (tiles[k - 1] if k else (cx, cy)) and not post_battle and stall >= 2 and reroutes < 40 and tiles:
+                new = self.reroute(tiles[-1], avoid=())          # something is in the way (a wandering NPC): path again around the live objects
+                reroutes += 1
+                if new:
+                    dirs = new; cx, cy = cur; x, y = cx, cy; tiles = []
+                    for d in dirs:
+                        x, y = (x + DX[d][0]) & mask, (y + DX[d][1]) & mask; tiles.append((x, y))
+                    k = 0; stall = 0; rerouted = True
+                    print("   re-routed around live objects: %d steps from (%d,%d)" % (len(dirs), cx, cy), flush=True)
+                    continue
             if j is None and cur == (tiles[k - 1] if k else (cx, cy)) and stall < (60 if post_battle else 15):     # blocked (wandering NPC, e.g. castle guards): wait and retry
                 stall += 1
                 if post_battle: self.press('A', 3, 20)          # the victory screens (Gil, exp, items) can outlast the first A presses
                 else: self.wait(45)
                 continue
-            if j is None: return k, self.pos()
+            if j is None:
+                print("   walker stopped: at %s, expected %s (step %d/%d, msgbox %d, battle %d)" % (cur, tiles[k], k, len(dirs), self.u8(0xB57), self.u8(0x18)), flush=True)
+                return k, self.pos()
             stall = 0; post_battle = False
             k = j + 1
-        return k, self.pos()
+        return (n0 if rerouted else k), self.pos()
 
     def _expected(self, s, path):
         x, y = s.x, s.y

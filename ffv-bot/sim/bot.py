@@ -111,7 +111,7 @@ def main(argv):
                 outs = S.execute(p, a)
                 print("   live now: map %d (%d,%d), plan expects %s" % (lv["map"], lv["x"], lv["y"], sorted({(o.map, o.x, o.y) for o in outs})), flush=True)
                 for _ in range(10):                     # a scene or map transition may still be running: let it finish before judging
-                    if any((o.map, o.x, o.y) == (lv["map"], lv["x"], lv["y"]) for o in outs): break
+                    if any((o.map, o.x, o.y) == (lv["map"], lv["x"], lv["y"]) and not (lv["flags"] ^ o.flags) & S.read_mask & ~(1 << 511) for o in outs): break
                     ex.settle(); ex.wait(60); lv = ex.live()
                 match = [o for o in outs if (o.map, o.x, o.y) == (lv["map"], lv["x"], lv["y"])]
                 diffs = compare(S, lv, match[0] if match else n)
