@@ -69,7 +69,10 @@ class Game:
         import shutil
         if not (os.path.isdir(self.STATES) and os.path.exists(path)): return False
         fs = [f for f in os.listdir(self.STATES) if f.endswith(".state%d" % slot)]
-        f = os.path.join(self.STATES, fs[0] if fs else "Final Fantasy V (Japan) (patched)(1).state%d" % slot)
+        rom = os.environ.get("FFV_ROM")           # RetroArch names state slots after the loaded content
+        name = os.path.splitext(os.path.basename(rom))[0] + ".state%d" % slot if rom else (fs[0] if fs else None)
+        if name is None: return False
+        f = os.path.join(self.STATES, name)
         shutil.copy(path, f); self.load(slot); return True
     def load(self, slot): self.cmd("LOAD_STATE_SLOT %d" % slot); self.slot = slot; time.sleep(1.0)
 

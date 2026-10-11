@@ -38,6 +38,9 @@ class Nav(Game):
         for slot in range(4):
             b = 0x2000 + 0x80 * slot
             self.write(b + 6, bytes([0x0F, 0x27]))
+        for slot in range(4, 12):
+            b = 0x2000 + 0x80 * slot
+            if self.u16(b + 6) > 1: self.write(b + 6, bytes([1, 0]))
 
     # ---- state helpers ----
     def flags256(self):
