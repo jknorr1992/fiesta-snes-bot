@@ -279,10 +279,13 @@ class Sim:
         f = self._local_flood(lm, start, s.map)
         dist = f[0]; par = f[1]; own = False                    # the cached flood is shared: copied only when a plain-floor trigger tile extends it
         terminal = {}; tcost = {}
-        work = []; wn = 0
-        for it in f[2]: wn += 1; heapq.heappush(work, (dist[it[0]] + it[3], wn, it))
-        while work:
-            _, _, (cur, d, nxt, step) = heapq.heappop(work)          # cheapest arrival first, like one Dijkstra over the whole map
+        base = f[2]; bi = 0; nb = len(base)                      # flood arrivals come sorted by cost; extras (past plain-floor triggers) go in a heap
+        extra = []; wn = 0
+        while bi < nb or extra:
+            if extra and (bi >= nb or extra[0][0] < dist[base[bi][0]] + base[bi][3]):
+                _, _, (cur, d, nxt, step) = heapq.heappop(extra)
+            else:
+                cur, d, nxt, step = base[bi]; bi += 1
             nx, ny, nz = nxt
             key = (nx, ny, d)
             if key in terminal: continue
@@ -298,7 +301,7 @@ class Sim:
             f2 = self._local_flood(lm, nxt, s.map)
             for node, dd in f2[0].items():
                 if node != nxt and c + dd < dist.get(node, 1 << 30): dist[node] = c + dd; par[node] = f2[1][node]
-            for it in f2[2]: wn += 1; heapq.heappush(work, (dist[it[0]] + it[3], wn, it))
+            for it in f2[2]: wn += 1; heapq.heappush(extra, (dist[it[0]] + it[3], wn, it))
         # terminal tiles: walking onto them fires something
         for (nx, ny, d), (cur, kind, e) in terminal.items():
             tgt = State.clone(s); tgt.x, tgt.y, tgt.face = nx, ny, FACE_OF_DIR[d]
@@ -520,6 +523,7 @@ class Sim:
         r = cache.get(key)
         if r is not None: return r
         bar = self._world_barriers(w)
+        sc = self.__dict__.setdefault("_wstep_cache", {}).setdefault((w, vt, mk), {})       # step results are the same for every flood of this map state
         dist = {start: 0}; par = {start: None}; arr = []; seen = set()
         q = collections.deque([start])
         while q:
@@ -527,7 +531,10 @@ class Sim:
             for d in (1, 2, 3, 4):
                 dx, dy = WDIRS[d]
                 npos = ((cur[0] + dx) & 255, (cur[1] + dy) & 255)
-                r2 = self.W.step(w, vt, cur[0], cur[1], d, mk, npos in vtiles and vt == 0)
+                bd = npos in vtiles and vt == 0
+                k2 = (cur[0], cur[1], d, bd)
+                r2 = sc.get(k2, 0)
+                if r2 == 0: r2 = sc[k2] = self.W.step(w, vt, cur[0], cur[1], d, mk, bd)
                 if r2 is None: continue
                 if r2[2]:
                     if (npos, d) not in seen: seen.add((npos, d)); arr.append((cur, d, npos, True))

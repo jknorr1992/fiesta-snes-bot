@@ -52,16 +52,22 @@ class Relaxed:
         INF = 10 ** 9
         dist = [INF] * n
         pq = []
-        for f in range(512):
-            if flags >> f & 1: dist[self.oF + f] = 0; pq.append((0, self.oF + f))
+        fl = flags
+        while fl:                                           # set bits only
+            low = fl & -fl; f = low.bit_length() - 1; fl ^= low
+            if f < 512: dist[self.oF + f] = 0; pq.append((0, self.oF + f))
         nf = self.init_npc if npcf is None else npcf
-        for s in range(1024):
-            if nf >> s & 1: dist[self.oN + s] = 0; pq.append((0, self.oN + s))
+        while nf:
+            low = nf & -nf; s_ = low.bit_length() - 1; nf ^= low
+            if s_ < 1024: dist[self.oN + s_] = 0; pq.append((0, self.oN + s_))
         dist[self.oM + curmap] = 0; pq.append((0, self.oM + curmap))
         # hyperedges with no prerequisites fire immediately
-        cnt = [len(h[1]) for h in self.he]; mx = [0] * len(self.he)
-        for i, (t, pre, c) in enumerate(self.he):
-            if not pre and c < dist[t]: dist[t] = c; pq.append((c, t))
+        if self.__dict__.get("_cnt0") is None:
+            self._cnt0 = [len(h[1]) for h in self.he]
+            self._free = [(t, c) for (t, pre, c) in self.he if not pre]
+        cnt = list(self._cnt0); mx = [0] * len(self.he)
+        for t, c in self._free:
+            if c < dist[t]: dist[t] = c; pq.append((c, t))
         heapq.heapify(pq)
         done = [False] * n
         while pq:

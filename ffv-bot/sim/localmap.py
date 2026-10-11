@@ -60,6 +60,12 @@ class LocalMap:
 
     def moves(self, x, y, z):
         """all single-step successors from standing state (x, y, z): list of (dir, (nx, ny, nz)). Handles auto-move tiles."""
+        mv = self.__dict__.setdefault("_mv", {})
+        r = mv.get((x, y, z))
+        if r is None: r = mv[(x, y, z)] = self._moves(x, y, z)
+        return r
+
+    def _moves(self, x, y, z):
         f = self.forced(x, y)
         if f:
             dx, dy = DIRS[f]
