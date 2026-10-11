@@ -161,10 +161,27 @@ class Sim:
         if s.map >= 5: return self._arrive_local(s, stepped, depth)
         return self._arrive_world(s, stepped, depth)
 
+    def _ride(self, o):
+        """an event can leave the party on an auto-move (conveyor) tile: the engine keeps pushing it until it leaves them.
+        -> (state, entrance_taken_at_the_end)"""
+        if o.map < 5 or o.ended: return o, False
+        lm = self.localmap(o)
+        rode = False
+        for _ in range(300):
+            if not lm.forced(o.x, o.y): break
+            r = lm.moves(o.x, o.y, o.z)
+            if not r: break
+            d, (nx, ny, nz) = r[0]
+            if self.trig_at(o.map).get((nx, ny)) is not None or lm.is_exit(nx, ny): break
+            o = State.clone(o); o.x, o.y, o.z = nx, ny, nz; o.face = FACE_OF_DIR[d]; rode = True
+            if self.ent_at(o.map).get((nx, ny)) is not None: return o, True
+        return o, False
+
     def _run_after(self, s, ev, depth):
         res = []
-        for o in self.V.run(s, ev):
-            if o.key() == s.key(): res.append(o)
+        for o, ent in map(self._ride, self.V.run(s, ev)):
+            if ent: res += self._take_entrance(o, self.ent_at(o.map)[(o.x, o.y)], depth)
+            elif o.key() == s.key(): res.append(o)
             else: res += self.arrive(self.with_z(o), False, depth + 1)
         return res
 
@@ -172,12 +189,20 @@ class Sim:
         ts = self.trig_at(s.map).get((s.x, s.y))
         if ts is not None:
             ev = self.pick(s, self.R.trigger_script(ts), s.face, False)
-            if ev: return self._run_after(s, ev, depth)
+            if ev:
+                outs = self._run_after(s, ev, depth)
+                e = self.ent_at(s.map).get((s.x, s.y)) if stepped else None
+                if e is None: return outs
+                res = []                                   # CheckTriggers runs the entrance check after the event trigger unless $59 is set
+                for o in outs:
+                    if o.map == s.map and (o.x, o.y) == (s.x, s.y) and not o.ended: res += self._take_entrance(o, e, depth)
+                    else: res.append(o)
+                return res
         if stepped:
             e = self.ent_at(s.map).get((s.x, s.y))
             if e is not None: return self._take_entrance(s, e, depth)
         lm = self.localmap(s)
-        if lm.is_exit(s.x, s.y):
+        if lm.is_exit(s.x, s.y) and stepped:
             return self._load_parent(s, depth)
         return [s]
 

@@ -158,6 +158,7 @@ class VM:
             dx, dy = {0: (0, -1), 1: (1, 0), 2: (0, 1), 3: (-1, 0)}[s.face]
             s.x = (s.x + dx) & 255 if s.map < 5 else (s.x + dx) & 63
             s.y = (s.y + dy) & 255 if s.map < 5 else (s.y + dy) & 63
+        elif op == 0x0C: s.face = (s.face + 2) & 3          # party action $0c flips the facing (eor #$04 on the direction byte)
         elif 0x10 <= op < 0x18:
             s.face = (op - 0x10) >> 1
         elif op in (0xA2, 0xA3): s.set_flag(b[1], op == 0xA2)
