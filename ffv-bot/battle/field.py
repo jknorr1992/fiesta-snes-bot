@@ -115,6 +115,11 @@ class Field:
     def to_wram(self): return bytes(self.wram)
     # ---- import from a running/saved game
     @classmethod
+    def from_spec(cls, data, spec, **kw):
+        """Party / gear / items from a plain description, checked against the ROM tables (see party.py)."""
+        import party
+        return party.build_field(data, spec, **kw)
+    @classmethod
     def from_state(cls, path, data=None):
         """WRAM out of a RetroArch/snes9x save state (tools/snes9x_state.py)."""
         import os, sys

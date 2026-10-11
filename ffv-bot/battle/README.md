@@ -36,6 +36,32 @@ f.set_items({"Potion": 10, "PhenixDwn": 2}); f.set_magic(spell_ids=[0, 1])
 res = run_battle(f, encounter=0x05d, background=0x12)     # BattleResult: outcome, frames, gil, exp, items, party_after
 ```
 
+Describe the party in plain terms (no WRAM, no save state): `party.json`, checked against the ROM tables (`party.py`):
+
+```json
+{"gil": 2000,
+ "party": [{"character": "Bartz", "job": "Knight", "level": 25, "row": "front",
+            "equipment": {"right_hand": "Broad", "left_hand": "shield:Mythril", "head": "Plumed", "body": "Copper", "accessory": "Guard"}},
+           {"character": "Lenna", "job": "WhiteMage", "level": 25, "row": "back", "hp": 0.5}],
+ "items": {"Potion": 10, "Hi-Potion": 3},
+ "magic": ["Cure", "Cure2", "black:Fire"]}
+```
+
+```
+python3 battle/run.py fight 0x5d --spec party.json      # also: bulk.py ... --spec party.json, Field.from_spec(data, spec)
+python3 battle/run.py check party.json                  # validate and show the resulting characters
+python3 battle/run.py items --slot head --job Monk      # what the ROM lets that job wear there (jobs / spells list the names)
+```
+
+Anything illegal raises `SpecError` listing every problem. Checked from the ROM: the character (Bartz, Lenna, Galuf/Krile, Faris; once each, 1-4 in
+the party), the job, level 1-99 (exp, max HP and max MP are *derived* with the game's own exp table and `LevelUp` HP/MP formula; `hp`/`mp` can
+only be "full", a 0-1 fraction or a number up to the maximum), each equipment slot (the item must exist, fit the slot per its property record,
+and be wearable by the job per the same equip-class test the in-game menu uses; a hand takes a weapon or a shield), inventory items (real
+items only, 1-99 each) and spell ids. Item names are the ROM's 9-character names; when a name is shared write `category:Name`
+(`shield:Mythril`, `dagger:Mythril`, `black:Fire`) or give the id, and an ambiguous name is an error that lists the candidates. Which spells a
+character can cast comes from the job's commands (`EnableSpells` is derived the way the menu does). Not covered: learned job abilities beyond the
+job's own commands, mastery bonuses, status effects.
+
 Statistics over many battles (all cores, `bulk.py`): `python3 battle/bulk.py 0x5d --runs 1024 --jobs 4 [--state s.state4]` prints
 outcome rates, duration percentiles, HP lost, gil and item drops. The variation between runs is the game's own RNG state
 (`seed` 0-255, the starting index of the ROM's random table); a reused worker sim gives the same result as a fresh one. From Python:
@@ -93,4 +119,4 @@ which crashed all blue-magic battles (87 of them). That ROM is no longer used. T
 `cpu65816.c`/`cpu.py` interpreter and ctypes wrapper (built on demand into `_build/`); `sim.py` `BattleSim`;
 `data.py` ROM tables (monsters, battles, encounter groups, jobs, names); `field.py` field-state builder (the WRAM
 the battle reads: characters, equipment, items, magic); `scenario.py` `run_battle`; `dis65816.py` small disassembler
-for debugging; `run.py` CLI; `bulk.py` parallel runner; `tests/` (`python3 battle/tests/test_battle.py`); `validate/` snes9x differential test.
+for debugging; `run.py` CLI; `bulk.py` parallel runner; `party.py` checked party/equipment/items description; `tests/` (`python3 battle/tests/test_battle.py`); `validate/` snes9x differential test.

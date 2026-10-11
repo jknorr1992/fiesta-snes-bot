@@ -1,0 +1,12 @@
+{
+  "gil": 2000,
+  "party": [
+    {"character": "Bartz", "job": "Knight", "level": 25, "row": "front",
+     "equipment": {"right_hand": "Broad", "left_hand": "shield:Mythril", "head": "Plumed", "body": "Copper", "accessory": "Guard"}},
+    {"character": "Lenna", "job": "WhiteMage", "level": 25, "row": "back", "hp": 0.5},
+    {"character": "Galuf", "job": "Monk", "level": 24},
+    {"character": "Faris", "job": "Thief", "level": 26, "equipment": {"right_hand": "dagger:Mythril"}}
+  ],
+  "items": {"Potion": 10, "Hi-Potion": 3, "PhnxDown": 2},
+  "magic": ["Cure", "Cure2", "Protect", "black:Fire", "black:Ice"]
+}

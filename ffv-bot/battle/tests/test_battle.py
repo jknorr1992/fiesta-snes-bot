@@ -59,6 +59,39 @@ def test_bulk_runner_matches_serial():
     jobs = [Job(5, 0, s) for s in range(4)]
     assert run_many(jobs, f, processes=2) == run_many(jobs, f, processes=1)
 
+@needs_rom
+def test_party_spec_builds_legal_party():
+    import party
+    d = GameData(ROM)
+    f = party.build_field(d, {"gil": 99, "party": [
+        {"character": "Bartz", "job": "Knight", "level": 25, "equipment": {"right_hand": "Broad", "left_hand": "shield:Mythril", "head": "Plumed"}},
+        {"character": "Lenna", "job": "WhiteMage", "level": 25, "hp": 0.5}], "items": {"Potion": 10}, "magic": ["Cure", "black:Fire"]})
+    k, w = f.character(0), f.character(1)
+    assert (k.job, k.level, k.exp, k.max_hp) == (0, 25, d.level_exp(25), 737) and k.rh_weapon == 13 and k.lh_shield == 0x84 and k.head == 0x90
+    assert w.hp == round(w.max_hp * 0.5) and w.raw[0x3D] == 0x06          # white magic level 6 from the job's commands
+    assert not f.character(2).in_party and f.gil == 99 and f.items() == {0xE0: 10}
+    assert run_battle(f, 5, rom=ROM).outcome == "victory"
+
+@needs_rom
+def test_party_spec_rejects_illegal_values():
+    import party
+    d = GameData(ROM)
+    def problems(spec):
+        try: party.build_field(d, spec)
+        except party.SpecError as e: return "\n".join(e.problems)
+        raise AssertionError("accepted illegal spec")
+    ok = {"character": "Lenna", "job": "WhiteMage"}
+    assert "level" in problems({"party": [{**ok, "level": 100}]})
+    assert "unknown job" in problems({"party": [{**ok, "job": "Gunner"}]})
+    assert "cannot go there" in problems({"party": [{**ok, "equipment": {"right_hand": "Excalibur"}}]})        # job's weapon classes
+    assert "cannot go there" in problems({"party": [{**ok, "equipment": {"head": "Broad"}}]})                 # wrong slot
+    assert "ambiguous" in problems({"party": [{**ok}], "items": {"Mythril": 1}})
+    assert "quantity" in problems({"party": [{**ok}], "items": {"Potion": 100}})
+    assert "no item named" in problems({"party": [{**ok}], "items": {"Nonsense": 1}})
+    assert "listed twice" in problems({"party": [ok, ok]})
+    assert "1-4" in problems({"party": []})
+    assert "hp" in problems({"party": [{**ok, "hp": 99999}]})
+
 if __name__ == "__main__":
     for n, f in list(globals().items()):
         if n.startswith("test_"): f(); print("ok", n)

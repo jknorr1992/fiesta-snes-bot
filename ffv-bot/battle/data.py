@@ -12,16 +12,21 @@ MAP_GROUPS = 0x108000        # 512 x 2 (-> random group)
 MAP_RATES = 0x1084C0         # 2 bits per map
 JOB_NAMES, JOB_STATS, JOB_EQUIP, JOB_CMDS, JOB_PASSIVES = 0x115600, 0x1156B0, 0x115708, 0x115760, 0x1157B8
 INITIAL_CHARS = 0x117000     # 4 x 0x50 (the starting field character structs)
+ITEM_PROP_W, ITEM_PROP_A, EQUIP_TYPES, SPELL_NAMES = 0x110000, 0x110600, 0x112480, 0x111C80      # 12-byte property records; 4-byte equip-type masks; 6-byte spell names
+LEVEL_EXP, LEVEL_HP, LEVEL_MP, JOB_ABILITY_COUNT, ENABLE_SPELLS_TBL = 0x115000, 0x115129, 0x1151EF, 0x1152EA, 0x00E931
 MONSTER_NAMES, ITEM_NAMES, CMD_NAMES = 0x200050, 0x111380, 0x201150
 
-_CH = {0xFF: " ", 0x96: " ", 0xC5: "-", 0x94: "in", 0x95: "it", 0x97: "li"}
+# text encoding (FF5 US charset; digraph codes inferred from the names in this ROM; icon glyphs and unknown codes are dropped)
+_CH = {0xFF: "", 0x96: " ", 0xC5: "-", 0xE2: "+", 0xCD: "%", 0xA1: "!", 0xA2: "?", 0xA3: ".", 0x9D: ",", 0x99: "'",
+       0x94: "il", 0x95: "it", 0x97: "li", 0x98: "ll", 0xA4: "ti", 0xA5: "fi", 0xA6: "ro", 0xA7: "te", 0xA8: "le", 0xA9: "el", 0xAC: "if",
+       0xAD: "It", 0xAE: "tl", 0xAF: "ir", 0xB0: "tt", 0xB1: "ie", 0xB2: "in", 0xB9: "la", 0xBA: "oi", 0xBB: "er"}
 def text(bs):
     o = []
     for b in bs:
         if 0x60 <= b <= 0x79: o.append(chr(65 + b - 0x60))
         elif 0x7A <= b <= 0x93: o.append(chr(97 + b - 0x7A))
-        elif 0x54 <= b <= 0x5D: o.append(str(b - 0x54))
-        else: o.append(_CH.get(b, "?" if b else ""))
+        elif 0x53 <= b <= 0x5C: o.append(str(b - 0x53))
+        else: o.append(_CH.get(b, ""))
     return "".join(o).strip()
 
 BATTLE_OVER = {0x80: "victory", 0x40: "defeat", 0x01: "escaped", 0x20: "timer"}
@@ -93,3 +98,53 @@ class GameData:
                     equip_types=bytes(r[JOB_EQUIP + 4 * j:JOB_EQUIP + 4 * j + 4]), commands=list(r[JOB_CMDS + 4 * j:JOB_CMDS + 4 * j + 4]),
                     passives=self.u16(JOB_PASSIVES + 2 * j))
     def initial_character(self, i): return bytes(self.r[INITIAL_CHARS + 0x50 * i:INITIAL_CHARS + 0x50 * i + 0x50])
+
+    # ---- items / equipment (layouts from the menu's equip filter, menu-main.asm _c2ecf3 / _c2d9ab)
+    def item_icon(self, i): return self.r[ITEM_NAMES + 9 * i]
+    def item_prop(self, i):
+        """12-byte property record: weapons 2-0x7F, armor 0x80-0xDF, consumables (8-byte records) 0xE0-0xFF."""
+        if 2 <= i < 0x80: o = ITEM_PROP_W + 12 * i
+        elif 0x80 <= i < 0xE0: o = ITEM_PROP_A + 12 * (i - 0x80)
+        else: return None
+        return bytes(self.r[o:o + 12])
+    def equip_type_masks(self, t):
+        o = EQUIP_TYPES + 4 * (t & 0x3F); return self.u16(o), self.u16(o + 2)       # (weapon-class mask, armor-class mask)
+    ITEM_BLANK = {"", "Item0000", "Dummy", "Empty", "Left", "Right"}
+    def item_valid(self, i): return 2 <= i < 256 and self.item_name(i) not in self.ITEM_BLANK
+    def item_kind(self, i):
+        """weapon | shield | head | body | accessory | consumable (None for placeholder ids)."""
+        if not self.item_valid(i): return None
+        if i >= 0xE0: return "consumable"
+        p = self.item_prop(i)
+        if i < 0x80: return "weapon" if self.equip_type_masks(p[2]) != (0, 0) else None
+        for bit, k in ((8, "shield"), (4, "head"), (2, "body"), (1, "accessory")):
+            if p[0] & bit: return k
+        return None
+    def item_equippable(self, i, weapon_mask, armor_mask):
+        """The menu's test: the item's equip class must intersect the character's weapon or armor class mask (from the job)."""
+        p = self.item_prop(i)
+        if p is None: return False
+        w, a = self.equip_type_masks(p[2]); return bool(w & weapon_mask) or bool(a & armor_mask)
+
+    # ---- level tables
+    def level_exp(self, level): o = LEVEL_EXP + 3 * (level - 1); return self.r[o] | self.r[o + 1] << 8 | self.r[o + 2] << 16
+    def level_hp_mp(self, level, vit, mag):
+        """Max HP/MP after reaching `level` (>= 2), as the battle program's LevelUp routine computes them."""
+        hp0, mp0 = self.u16(LEVEL_HP + 2 * (level - 1)), self.u16(LEVEL_MP + 2 * (level - 1))
+        return min(9999, hp0 + (hp0 * vit >> 5)), min(999, mp0 + (mp0 * mag >> 5))
+    def job_ability_count(self, j): return self.r[JOB_ABILITY_COUNT + j]
+    def enable_spells(self, commands):
+        """Spell levels per magic type that the four battle commands allow (menu-main.asm _c2e6e0) -> the field char's 3 EnableSpells bytes."""
+        lv = [0] * 6
+        for c in commands:
+            if c & 0x80 or c < 0x2C or c >= 0x4D: continue
+            if c < 0x49:
+                t = self.r[ENABLE_SPELLS_TBL + c - 0x2C]; typ, l = t >> 4, t & 15
+                lv[typ] = max(lv[typ], l)
+            else:
+                l = 3 if c == 0x4C else c - 0x48
+                lv[1] = max(lv[1], l); lv[2] = max(lv[2], l)
+        return bytes((lv[2 * k] << 4) | lv[2 * k + 1] for k in range(3))
+    def spell_name(self, i): return text(self.r[SPELL_NAMES + 6 * i:SPELL_NAMES + 6 * i + 6])
+    def spell_icon(self, i):
+        return {0xE3: "sword", 0xE4: "white", 0xE5: "black", 0xE6: "time", 0xBE: "special", 0xC4: "music", 0xBC: "key", 0xC6: "star"}.get(self.r[SPELL_NAMES + 6 * i], "spell")

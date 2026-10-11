@@ -2,7 +2,8 @@
 """Run many battles in parallel to gather statistics (win rate, duration, damage taken, drops...).
 
     bulk.py 0x5d --runs 512 --jobs 4                    # encounter 0x5d with a fresh 4-member party, RNG seeds 0..255 cycled
-    bulk.py 0x5d --state s.state4 --background 0x12     # party / gear / items from a RetroArch save state
+    bulk.py 0x5d --spec party.json --background 0x12    # party / gear / items from a checked JSON description (party.py)
+    bulk.py 0x5d --state s.state4                       # ...or from a RetroArch save state
 
     from bulk import Job, run_many, summarize
     jobs = [Job(encounter=0x5d, background=0x12, seed=s % 256) for s in range(1000)]
@@ -70,11 +71,12 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("encounter", type=lambda s: int(s, 0)); ap.add_argument("--rom", default=DEFAULT_ROM)
     ap.add_argument("--runs", type=int, default=256); ap.add_argument("--jobs", type=int, default=None)
-    ap.add_argument("--state"); ap.add_argument("--party", type=int, default=4); ap.add_argument("--background", type=lambda s: int(s, 0), default=0)
+    ap.add_argument("--state"); ap.add_argument("--spec", help="JSON party description (party.py)"); ap.add_argument("--party", type=int, default=4); ap.add_argument("--background", type=lambda s: int(s, 0), default=0)
     ap.add_argument("--frames", type=int, default=60000); ap.add_argument("--policy", default="fight", choices=("fight", "pad"))
     a = ap.parse_args(argv)
     d = GameData(open(a.rom, "rb").read())
-    f = Field.from_state(a.state, d) if a.state else Field.new(d, party=a.party)
+    from run import field_from_args
+    f = field_from_args(d, a)
     jobs = [Job(a.encounter, a.background, i % 256, "default", a.frames, a.policy) for i in range(a.runs)]
     t = time.time(); res = run_many(jobs, {"default": f.to_wram()}, a.jobs, a.rom); dt = time.time() - t
     print(d.battle_summary(a.encounter)); s = summarize(res)
