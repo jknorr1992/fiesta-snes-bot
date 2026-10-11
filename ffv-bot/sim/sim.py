@@ -4,7 +4,7 @@ A *macro action* is something the player can do from a settled position: walk to
 entrance, map exit, vehicle), or stand somewhere and press A (NPC, button trigger, board/land a vehicle).  Every action yields
 the resulting States (several when the event branches).  Walking paths are recomputed on demand (`path_to`).
 """
-import collections, functools, os, sys
+import collections, heapq, functools, os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools"))
 from rom import Rom, DEFAULT_ROM
@@ -28,6 +28,8 @@ class Action:
         self.path = None     # walking directions (1 up 2 right 3 down 4 left) from the current position to the standing tile
         self.stand = None    # direction to press at the end to turn without moving (None = none)
     def __repr__(self): return "<%s %s cost=%s>" % (self.kind, self.desc, self.cost)
+
+DMG_COST = 12                                            # extra path cost of stepping on a damage floor tile (tile property byte 1 bit $20)
 
 class Sim:
     def __init__(self, rom_path=None):
@@ -274,28 +276,32 @@ class Sim:
         acts = []
         start = (s.x, s.y, s.z)
         dist = {start: 0}; par = {start: None}
-        q = collections.deque([start])
+        heap = [(0, 0, start)]; n = 0; done = set()
         ents = self.ent_at(s.map)
         terminal = {}
-        while q:
-            cur = q.popleft()
+        while heap:
+            dc, _, cur = heapq.heappop(heap)
+            if cur in done: continue
+            done.add(cur)
             for d, nxt in lm.moves(*cur):
                 nx, ny, nz = nxt
-                if nxt in dist or (nx, ny, d) in terminal: continue
+                if (nx, ny, d) in terminal: continue
+                step = 1 + (DMG_COST if lm.props(nx, ny)[0] & 0x20 else 0)      # damage floor (poison/tile damage): walk around it when a detour is cheaper
                 kind = self._arrival_kind(s, s.map, nx, ny, d)
                 e = ents.get((nx, ny))
                 if kind or e is not None or lm.is_exit(nx, ny):
                     terminal[(nx, ny, d)] = (cur, kind, e)
-                    dist.setdefault(("T", nx, ny, d), dist[cur] + 1)
+                    dist.setdefault(("T", nx, ny, d), dc + step)
                     continue
-                dist[nxt] = dist[cur] + 1; par[nxt] = (cur, d); q.append(nxt)
+                if nxt in done or dist.get(nxt, 1 << 30) <= dc + step: continue
+                dist[nxt] = dc + step; par[nxt] = (cur, d); n += 1; heapq.heappush(heap, (dc + step, n, nxt))
         # terminal tiles: walking onto them fires something
         for (nx, ny, d), (cur, kind, e) in terminal.items():
             tgt = State.clone(s); tgt.x, tgt.y, tgt.face = nx, ny, FACE_OF_DIR[d]
             tgt.z = lm.z_after(lm.props(nx, ny)[0], cur[2])
             what = kind[0] if kind else ("entrance" if e is not None else "exit")
             desc = "walk to (%d,%d) on map %d: %s %s" % (nx, ny, s.map, what, kind[1] if kind else (("-> map %d" % e["map"]) if e is not None else ""))
-            acts.append(Action("walk" + what, desc, dist[cur] + 1, (tgt, True), face=d, event=kind[1] if kind else None))
+            acts.append(Action("walk" + what, desc, dist["T", nx, ny, d], (tgt, True), face=d, event=kind[1] if kind else None))
             acts[-1].path = self._backtrack(par, cur) + [d]
         # interactions from plain tiles
         objs = self.objects(s)
