@@ -80,9 +80,9 @@ def main(argv):
                 ex.do(p, a)
                 lv = ex.live()
                 outs = S.execute(p, a)
-                for _ in range(6):                      # a map transition may still be in flight
+                for _ in range(10):                     # a scene or map transition may still be running: let it finish before judging
                     if any((o.map, o.x, o.y) == (lv["map"], lv["x"], lv["y"]) for o in outs): break
-                    ex.wait(60); lv = ex.live()
+                    ex.settle(); ex.wait(60); lv = ex.live()
                 match = [o for o in outs if (o.map, o.x, o.y) == (lv["map"], lv["x"], lv["y"])]
                 diffs = compare(S, lv, match[0] if match else n)
                 if diffs:
