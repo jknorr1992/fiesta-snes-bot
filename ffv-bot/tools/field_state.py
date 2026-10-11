@@ -132,9 +132,62 @@ def raw_hi(r, mp, i):
     o = 0xE59C0 + a + 7 * i
     return (r[o + 3] & 0xC0) | ((r[o + 4] & 0xC0) >> 2)
 
-def render_state(srom, s, rom_path=None, **kw):
-    """256x224 RGB array of the screen the game shows for State s (local maps)"""
-    m = build_mem(srom, s, **kw)
+WORLD_PAL = 0xFFCC0       # CF/FCC0: Bartz, Galuf, underwater world palettes (256 bytes each)
+WINDOW_PAL = 0xD340       # C0/D340 gradient palette used by the world map sprites ($0D80)
+WORLD_TILESET = (0, 1, 0, 2, 2)
+
+def world_mem(srom, s, world, party_gfx=2, frame=0):
+    """WRAM image for a State on the world map (map index < 5); `world` is world_model.World (rows with flag-driven changes)"""
+    from field_screen import _water_update
+    r = srom.r
+    m = Mem(r); b = m.b
+    wm = s.map
+    b[0xB53] = 0
+    m.s16(0xAD4, wm); m.s16(0xAD6, wm)
+    b[0xAD8], b[0xAD9] = s.x & 255, s.y & 255
+    b[0xADA] = party_gfx; b[0xADB] = s.face & 3; b[0xADC] = s.veh
+    for i, v in enumerate(s.vtab):
+        b[0xADD + 4 * i:0xADD + 4 * i + 4] = bytes(v)
+    rows = world.rows(wm, world.mod_key(wm, s.flags))
+    for ty in range(64):
+        wy = s.y + ((ty - s.y + 32) % 64 - 32)
+        b[0x10000 + 256 * (wy & 63):0x10000 + 256 * (wy & 63) + 256] = rows[wy & 255]
+    pal = bytearray(0x200)
+    ts = WORLD_TILESET[wm]
+    pal[0:256] = r[WORLD_PAL + 256 * ts:WORLD_PAL + 256 * ts + 256]
+    sp = 0x1FFC00
+    pal[0x100:0x180] = r[sp + 0x100:sp + 0x180]; pal[0x100:0x140] = r[sp:sp + 0x40]
+    pal[0x180:0x1A0] = r[WINDOW_PAL + (0x20 if wm >= 3 else 0):WINDOW_PAL + (0x20 if wm >= 3 else 0) + 0x20]
+    pal[0x1A0:0x200] = r[sp + 0x20:sp + 0x80]
+    b[0xC00:0xE00] = pal
+    b[DP + 0x45] = 0xF0; b[DP + 0x47] = 0x41 if wm < 3 else 0xC1; b[DP + 0x49] = 0x10; b[DP + 0x4C] = 0xFF
+    b[DP + 0x3E] = frame & 0xFF
+    sx = ((s.x * 16 - 0x70) * 2) & 0x7FF; sy = ((s.y * 16 - 0x70) * 2) & 0x7FF
+    m.s16(DP + 0x61, sx); m.s16(DP + 0x63, sy)
+    b[DP + 0xBD] = 1; b[DP + 0xC5] = b[DP + 0xC6] = 0x70
+    # water animation buffers hold the animated characters one step ahead of VRAM: start from the ROM characters (frame 0 of the cycle)
+    from field_screen import Rom as FR
+    ch = FR(r).world_chars(wm)
+    win = bytearray(0x180)
+    win[0:0x80] = ch[0x62:0x64].reshape(-1)[:0x80].tobytes(); win[0x80:0x100] = ch[0x72:0x74].reshape(-1)[:0x80].tobytes()
+    win[0x100:0x180] = ch[0x87:0x89].reshape(-1)[:0x80].tobytes()
+    _water_update(win, (frame - 1) & 255)
+    b[0x18622:0x18622 + 0x180] = win
+    return m
+
+_WORLD = None
+
+def render_state(srom, s, world=None, **kw):
+    """256x224 RGB array of the screen the game shows for State s (local map or world map)"""
+    global _WORLD
+    if s.map < 5:
+        if world is None:
+            if _WORLD is None:
+                from world_model import World
+                _WORLD = World(srom.r)
+            world = _WORLD
+        m = world_mem(srom, s, world, **kw)
+    else: m = build_mem(srom, s, **kw)
     from field_sprites import synthesize
     F = Field(FRom(srom.r)); F.synth_oam = True
     return F.render(Wram(MemSrc(m)))

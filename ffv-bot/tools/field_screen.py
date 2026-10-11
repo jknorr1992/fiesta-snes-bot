@@ -293,7 +293,10 @@ class Field:
         vram = bytearray(buf.tobytes())
         if party < 9: vram[0xC000:0xC000 + 0x200] = R.party_gfx(party)[:0x200]
         cg = [u16(w.read(0xC00, 512), 2 * i) for i in range(256)]
-        oam = w.read(0x200, 0x220)
+        if self.synth_oam:
+            from field_sprites import Mem, synthesize
+            oam = synthesize(Mem.from_wram(w, self.rom.r))
+        else: oam = w.read(0x200, 0x220)
         regs = {a: 0 for a in range(0x2100, 0x2134)}
         regs[0x2100] = (w.dp8(0x45) >> 4) & 15
         regs[0x2101] = 3; regs[0x2105] = 7
