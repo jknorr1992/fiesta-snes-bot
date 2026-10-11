@@ -29,7 +29,7 @@ class Action:
         self.stand = None    # direction to press at the end to turn without moving (None = none)
     def __repr__(self): return "<%s %s cost=%s>" % (self.kind, self.desc, self.cost)
 
-DMG_COST = 12                                            # extra path cost of stepping on a damage floor tile (tile property byte 1 bit $20)
+DMG_COST = 6                                            # extra path cost of stepping on a damage floor tile (tile property byte 1 bit $20)
 
 class Sim:
     def __init__(self, rom_path=None):
