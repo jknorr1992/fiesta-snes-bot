@@ -375,6 +375,16 @@ class Sim:
                     terminal[(npos, d)] = (cur, kind)
                     continue
                 dist[npos] = dist[cur] + 1; par[npos] = (cur, d); q.append(npos)
+        if vt in (4, 5) or s.veh:     # keep the cheapest disembark per connected piece of land (ship stays at that dock)
+            comp = self._foot_comp(w, mk); best = {}
+            hot = self._hot_comps(s, w, comp)
+            for key, (cur, kind) in terminal.items():
+                if kind[0] != "disembark": continue
+                c = comp[key[0][1] * 256 + key[0][0]]
+                if c not in hot: continue
+                if c not in best or dist[cur] < dist[terminal[best[c]][0]]: best[c] = key
+            keep = set(best.values())
+            terminal = {k: v for k, v in terminal.items() if v[1][0] != "disembark" or k in keep}
         for (npos, d), (cur, kind) in terminal.items():
             tgt = State.clone(s); tgt.x, tgt.y, tgt.face = npos[0], npos[1], FACE_OF_DIR[d]
             if kind[0] == "disembark":
@@ -386,8 +396,16 @@ class Sim:
             acts[-1].path = self._backtrack(par, cur) + [d]
         # land the current vehicle here (A)
         if vt in (1, 2, 3, 6):
+            comp = self._foot_comp(w, mk)
+            hot = self._hot_comps(s, w, comp)
+            bestl = {}
             for node, dd in dist.items():
                 if self.W.can_land(w, vt, node[0], node[1], mk) and self._plain(s, node, vehicle_tiles):
+                    c = comp[node[1] * 256 + node[0]]
+                    if c in hot and (c not in bestl or dd < dist[bestl[c]]): bestl[c] = node     # one landing per useful piece of land
+            for node in bestl.values():
+                dd = dist[node]
+                if True:
                     tgt = State.clone(s); slot = s.veh - 1
                     tgt.x, tgt.y = node
                     tgt.vtab[slot] = [w << 5 | (tgt.vtab[slot][0] & 0x1F), 0x00, node[0], node[1]]
@@ -405,6 +423,34 @@ class Sim:
                     acts.append(Action("boardA", "board vehicle %d at (%d,%d)" % (i + 1, v[2], v[3]), dist[(v[2], v[3])] + 1, (tgt, False)))
                     acts[-1].path = self._backtrack(par, (v[2], v[3]))
         return acts
+
+    def _hot_comps(self, s, w, comp):
+        hot = set(comp[y * 256 + x] for (x, y) in list(self.ent_at(w)) + list(self.trig_at(w)) + [(v[2], v[3]) for v in s.vtab if (v[0] >> 5) == w])
+        hot |= set(comp[y * 256 + x] for m_, vt_, (x0, x1), (y0, y1), ts_ in WORLD_HOOKS if m_ == w for x in range(x0, x1 + 1) for y in range(y0, y1 + 1))
+        return hot
+
+    def _foot_comp(self, w, mk):
+        key = (w, mk)
+        cache = self.__dict__.setdefault("_comp_cache", {})
+        if key in cache: return cache[key]
+        comp = [-1] * 65536; n = 0
+        for st in range(65536):
+            if comp[st] >= 0: continue
+            comp[st] = n; q = [st]
+            while q:
+                c = q.pop(); x, y = c & 255, c >> 8
+                for d in (1, 2, 3, 4):
+                    dx, dy = WDIRS[d]; nx, ny = (x + dx) & 255, (y + dy) & 255
+                    nc = ny * 256 + nx
+                    if comp[nc] >= 0: continue
+                    r = self.W.step(w, 0, x, y, d, mk, False)
+                    if r is None or r[2]: continue
+                    rb = self.W.step(w, 0, nx, ny, {1: 3, 2: 4, 3: 1, 4: 2}[d], mk, False)
+                    if rb is None or rb[2]: continue
+                    comp[nc] = n; q.append(nc)
+            n += 1
+        cache[key] = comp
+        return comp
 
     def _plain(self, s, node, vehicle_tiles):
         return node not in vehicle_tiles
