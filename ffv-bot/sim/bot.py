@@ -40,6 +40,15 @@ def live_state(S, ex):
     return s
 
 
+def near_objects(ex, lv, r=10):
+    """NPC/object table ($1477, 0x14 bytes each: tile x at +1, tile y at +3) entries within r tiles of the party, for deviation reports"""
+    raw = ex.read(0x1477, 0x14 * 27); out = []
+    for i in range(27):
+        o = raw[0x14 * i:0x14 * i + 0x14]
+        if abs(o[1] - lv["x"]) <= r and abs(o[3] - lv["y"]) <= r: out.append("%d: %d,%d s%d" % (i, o[1], o[3], o[8] | o[9] << 8))
+    return "; ".join(out)
+
+
 def fresh_intro(ex, limit=1500):
     """From a freshly booted game: A through the title and opening scenes, keep the default name on the name screen, until the player
     has control on the world map with the opening scenes finished (position steady and no message for several polls)."""
@@ -100,6 +109,7 @@ def main(argv):
                 ex.do(p, a)
                 lv = ex.live()
                 outs = S.execute(p, a)
+                print("   live now: map %d (%d,%d), plan expects %s" % (lv["map"], lv["x"], lv["y"], sorted({(o.map, o.x, o.y) for o in outs})), flush=True)
                 for _ in range(10):                     # a scene or map transition may still be running: let it finish before judging
                     if any((o.map, o.x, o.y) == (lv["map"], lv["x"], lv["y"]) for o in outs): break
                     ex.settle(); ex.wait(60); lv = ex.live()
@@ -107,6 +117,7 @@ def main(argv):
                 diffs = compare(S, lv, match[0] if match else n)
                 if diffs:
                     print("   deviation: %s -> re-planning from the live state" % "; ".join(diffs), flush=True)
+                    print("   live objects near the party (index: x,y script): %s" % near_objects(ex, lv), flush=True)
                     ok = False; break
             replans += 0 if ok else 1
             if replans > 20: print("too many re-plans", flush=True); return 1
