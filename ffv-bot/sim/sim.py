@@ -22,11 +22,12 @@ FACE_OF_DIR = {1: 0, 2: 1, 3: 2, 4: 3}      # walking direction (1 up, 2 right, 
 DIR_OF_FACE = {v: k for k, v in FACE_OF_DIR.items()}
 
 class Action:
-    __slots__ = ("kind", "desc", "cost", "target", "face", "event", "path", "stand")
+    __slots__ = ("kind", "desc", "cost", "target", "face", "event", "path", "stand", "npc")
     def __init__(self, kind, desc, cost, target, face=None, event=None):
         self.kind, self.desc, self.cost, self.target, self.face, self.event = kind, desc, cost, target, face, event
         self.path = None     # walking directions (1 up 2 right 3 down 4 left) from the current position to the standing tile
         self.stand = None    # direction to press at the end to turn without moving (None = none)
+        self.npc = None      # talk to a wandering NPC: its object index (the walk to it is repeated live until it stands where the talk needs)
     def __repr__(self): return "<%s %s cost=%s>" % (self.kind, self.desc, self.cost)
 
 DMG_COST = 6                                            # extra path cost of stepping on a damage floor tile (tile property byte 1 bit $20)
@@ -346,6 +347,7 @@ class Sim:
                         tgt = State.clone(s); tgt.x, tgt.y, tgt.z, tgt.face = x, y, z, FACE_OF_DIR[d]
                         acts.append(Action("talk", "talk to npc %d (script %d) from (%d,%d) map %d: event %d" % (i, script, x, y, s.map, ev), dd + 1, (tgt, False), FACE_OF_DIR[d], ev))
                         acts[-1].path = self._backtrack(par, node); acts[-1].stand = d
+                        if not (self.R.npcs(s.map)[i]["flags"] & 4): acts[-1].npc = i
         # Karnak cell (map 138): the prisoner NPC (script 342) is out of reach until the cells open by themselves after a while;
         # then talking to him plays event 107 and releases the party. Modelled as a wait + talk at the start of the pocket.
         if s.map == 138:

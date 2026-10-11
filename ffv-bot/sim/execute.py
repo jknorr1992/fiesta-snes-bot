@@ -33,7 +33,7 @@ class Exec(Nav):
         """perform `act` from sim state s on the emulator"""
         if act.path:
             n, p = self.walk_dirs(act.path)
-            if n < len(act.path):
+            if n < len(act.path) and act.npc is None:
                 self.settle()
                 return
         if act.kind == "wait":                              # Karnak cell: poll until the prisoner's cell is reachable, talk, mash through the scene
@@ -53,9 +53,32 @@ class Exec(Nav):
             self.press("A", 4, 10); self.wait(90)
         if act.kind in ("talk", "turn", "press"):
             self.wait(30)                                   # let the last step's walk animation finish before turning / pressing
+            if act.kind == "talk" and act.npc is not None and act.stand and self.chase_talk(act): self.settle(); return
             if act.stand: self.press(BTN[act.stand], 4, 6)
             if act.kind != "turn": self.press("A", 4, 10)
         self.settle()
+
+    def chase_talk(self, act, tries=30):
+        """Talk to an NPC that walks about: the event depends on the direction the party faces, so stand on the tile on the far side of the
+        NPC's live tile (the party then faces it in direction act.stand), turn to it and press A; when the NPC has moved, walk there again.
+        True once a message box or script started."""
+        DX = {1: (0, -1), 2: (1, 0), 3: (0, 1), 4: (-1, 0)}
+        d = act.stand; dx, dy = DX[d]
+        for k in range(tries):
+            raw = self.read(0x1477, 0x14 * 27); o = raw[0x14 * act.npc:0x14 * act.npc + 0x14]
+            nx, ny = o[1] & 63, o[3] & 63
+            m, x, y = self.fpos()
+            if (x + dx, y + dy) != (nx, ny):
+                path = self.reroute((nx - dx, ny - dy))
+                if not path: self.wait(20); continue
+                self.walk_dirs(path[:3]); continue
+            self.wait(4)
+            self.press(BTN[d], 4, 6)
+            raw = self.read(0x1477, 0x14 * 27); o = raw[0x14 * act.npc:0x14 * act.npc + 0x14]
+            if (o[1] & 63, o[3] & 63) != (nx, ny): continue          # it stepped away while we turned
+            self.press("A", 4, 10); self.wait(20)
+            if self.u8(0xB57) or self.u8(0xB59): return True
+        return False
 
     def live_blocked(self, m, x, y):
         """tiles of the objects (NPCs) in the live object table of the current map ($1477, 0x14 bytes each: tile x +1, tile y +3), minus the party tile"""

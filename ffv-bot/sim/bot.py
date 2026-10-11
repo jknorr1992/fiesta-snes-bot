@@ -8,7 +8,7 @@ usage: bot.py [--rom PATH] [--dry] [--fresh] goal [goal ...]        goal = map:N
   --dry   plan from the live state and print the macro-actions without pressing anything
 ROM: --rom PATH or env FFV_ROM (your FF5r 'patched(1)' ROM; no default path)
 env: FFV_HOST (RetroArch host, default 127.0.0.1), N_EXP (search budget per goal, default 20000), plus the usual FFV_STATES / network settings.
-Not in the live state (defaults are assumed): moved/hidden NPC positions, so a plan can be off in scenes that move NPCs."""
+Live NPC positions are read from the object table; hidden NPCs and NPC facing are not (the flags decide visibility)."""
 import sys, os, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 if "--rom" in sys.argv:                      # must be set before the sim modules read FFV_ROM
@@ -38,6 +38,11 @@ def live_state(S, ex):
         ids = b"".join(ex.read(0x10000 + i, 1024) for i in range(0, 4096, 1024))
         s.mods = {(i % 64, i // 64): ids[i] for i in range(4096) if ids[i] != base.layer[i]}
         s.z = ex.u8(0xBC3) & 3                  # party z-level ($c3): stairs tiles keep the level the party came from
+        raw = ex.read(0x1477, 0x14 * 27)         # live object table: NPCs that stand somewhere other than their default tile (moved by a scene or walking about)
+        for i, n in enumerate(S.R.npcs(m)):
+            if i >= 27: break
+            o = raw[0x14 * i:0x14 * i + 0x14]
+            if o[8] | o[9] << 8 == n["script"] and (o[1] & 63, o[3] & 63) != (n["x"], n["y"]): s.npcpos[i] = (o[1] & 63, o[3] & 63)
         S.with_z(s)
     return s
 
