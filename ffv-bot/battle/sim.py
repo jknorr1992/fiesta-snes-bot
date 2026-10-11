@@ -24,6 +24,7 @@ EXEC_BATTLE = 0xC20000        # ExecBattle_ext (JSL target)
 INIT_SOUND = 0xC40000
 EXEC_SOUND = 0xC40004         # ExecSound_ext: HLE'd to an immediate RTL
 VBLANK_WAIT = 0xD97CAC        # spin-wait for the battle NMI (idle-skipped)
+MAIN_LOOP = 0xC25872          # MainBattleLoop: copies MenuDataC1 -> MenuData first thing each iteration
 OPEN_MENU = 0xC139F9          # battle graphics function $00 "open menu" (direct-command hook)
 SENTINEL = 0x7FFFF0           # return address the battle "returns" to
 
@@ -100,7 +101,7 @@ class BattleSim:
         self.frame = 0
         self._open_hook = -1
         self.direct = None         # callable(sim, char) -> Command | None: bypass the real menu (see set_direct)
-        self._close_menu = False; self._reset_cd42 = False
+        self._close_menu = False; self._reset_cd42 = False; self._enforce = None
         self.log = []
 
     def _hooks(self):
@@ -156,9 +157,10 @@ class BattleSim:
     def dump_wram(self): return bytes(self.m.wram)
 
     # ---- machine state snapshots (CPU + WRAM + timing); cheap (130 KB)
-    def snapshot(self): return (self.m.clone(), self.frame, self.running, list(self.pad_queue), self._close_menu)
+    def snapshot(self): return (self.m.clone(), self.frame, self.running, list(self.pad_queue), self._close_menu, self._reset_cd42, None if self._enforce is None else bytes(self._enforce))
     def restore(self, snap):
-        m, self.frame, self.running, pq, self._close_menu = snap
+        m, self.frame, self.running, pq, self._close_menu, self._reset_cd42, enf = snap
+        self._enforce = None if enf is None else bytearray(enf)
         self.m.copy_from(m); self.pad_queue = list(pq)
 
     # ---- battle lifecycle
@@ -170,7 +172,7 @@ class BattleSim:
         m.setreg(cpu.R_S, 0x1FFF); m.setreg(cpu.R_P, 0x24); m.setreg(cpu.R_D, 0); m.setreg(cpu.R_DB, 0x7E)
         m.setreg(cpu.R_E, 0)
         if not self.spc: m.reset_hw()          # same hardware phase as a fresh sim, so a reused BattleSim reproduces fresh-sim results frame for frame
-        m.joy(0, 0); self.pad_queue = []; self._close_menu = False; self._reset_cd42 = False
+        m.joy(0, 0); self.pad_queue = []; self._close_menu = False; self._reset_cd42 = False; self._enforce = None; self._enforce = None
         m.call_long(EXEC_BATTLE, SENTINEL)
         self.running = True; self.frame = 0
 
@@ -179,7 +181,7 @@ class BattleSim:
         menu would leave it and the menu is closed one frame later (the real menu's cursor/animation handling is skipped, so
         action timing can differ by a few frames from the pad path).  None from fn = fall back to the real menu."""
         self.direct = fn
-        if fn: self._open_hook = self.m.hook(OPEN_MENU, 0)
+        if fn: self._open_hook = self.m.hook(OPEN_MENU, 0); self._loop_hook = self.m.hook(MAIN_LOOP, 0)
         else:
             self._hooks()
 
@@ -197,11 +199,12 @@ class BattleSim:
         w = self.w
         w[0x41B1], w[0x41B2], w[0x41B3] = cmd.action, cmd.command, char
         w[0x41B4], w[0x41B5], w[0x41B6] = cmd.monsters, cmd.party, cmd.selected
+        w[0x41B8], w[0x41B9], w[0x41BA], w[0x41BB], w[0x41BC], w[0x41BD] = 0x80, 0, char, 0, 0, 0       # what the real menu leaves for a command without a second action
         if cmd.second:
             c2 = cmd.second
             w[0x41B8], w[0x41B9], w[0x41BA], w[0x41BB], w[0x41BC], w[0x41BD] = c2.action, c2.command, char, c2.monsters, c2.party, c2.selected
         w[0x41B0] = 1; w[0x41B7] = 1; w[0xCD41] = 1; w[0xCD42] = char; w[0x010D] = char
-        self._close_menu = True
+        self._close_menu = True; self._enforce = bytearray(w[0x41B0:0x41BE])
         self._rts()
 
     def _run(self, frames):
@@ -213,6 +216,9 @@ class BattleSim:
                 raise RuntimeError(f"CPU halted rc={rc} at {self.m.pc24:06X}: ring={[hex(x) for x in self.m.ring()[-8:]]}")
             elif self.direct and rc == cpu.RUN_HOOK + self._open_hook and self.m.pc24 == OPEN_MENU:
                 self._handle_open_menu(); continue
+            elif self.direct and rc == cpu.RUN_HOOK + self._loop_hook and self.m.pc24 == MAIN_LOOP:
+                if self._enforce is not None: self.w[0x41B0:0x41BE] = bytes(self._enforce)      # the graphics code clears the targets of a menu nobody is steering
+                self.m.skip_hook(); continue
             elif rc >= cpu.RUN_HOOK: raise RuntimeError(f"unhandled hook {rc - cpu.RUN_HOOK}")
             return rc
 
@@ -220,10 +226,11 @@ class BattleSim:
         """Advance by `frames` video frames (queued pad input is applied one frame at a time)."""
         for _ in range(frames):
             if not self.running: return
-            if self._close_menu and self.m.pc24 not in WAIT_MENU_PCS:      # the battle is still spinning in WaitMenu3 (C2:18F9): it has not seen the open menu yet
+            if self._close_menu and self.w[0x41BE] == 1 and self.m.pc24 not in WAIT_MENU_PCS:      # keep the menu open until the main loop has copied it (MenuDataC1 -> MenuData, 41BE=open) and left WaitMenu3 (C2:18F9); closing it earlier made the battle process a stale command
                 w = self.w; w[0x41B0] = 0; w[0x41B7] = 0; w[0xCD41] = 0; self._close_menu = False; self._reset_cd42 = True
+                if self._enforce is not None: self._enforce[0] = 0; self._enforce[7] = 0
             if self._reset_cd42 and self.rb(DISPLAY_CUR) == 0xFF:       # the command was taken (ProcessMenuCommand ends with no current char)
-                self.w[0xCD42] = 0xFF; self._reset_cd42 = False
+                self.w[0xCD42] = 0xFF; self._reset_cd42 = False; self._enforce = None
             if self.pad_queue:
                 b, n = self.pad_queue[0]
                 self.m.joy(0, b)
