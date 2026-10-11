@@ -59,10 +59,13 @@ snap = sim.snapshot(); ...; sim.restore(snap)
 
 ## ROM bug found: Ancient Library battles crash
 
-`ROM[0x24C75]` is `0xA9`, should be `0xE8` (INX) in the blue-magic "learn" loop. As shipped the code runs
-`LDA #$E0 / PHP / BRK` and the BRK vector `$0000` executes RAM as code. All four map-166 (Ancient Library) battles hit
-it, and any battle with a monster that casts blue magic. The simulator reports `outcome == "crash"` for these.
-This is a diagnosis only: **the ROM is never modified** (project rule), so the bot must avoid or otherwise handle these battles.
+`ROM[0x24C75]` is `0xA9` in the shipped `(patched)(1).sfc`; the base ROM `Final Fantasy 5 (tr).sfc` has `0xE8` (INX) there
+in the blue-magic "learn" loop. `(patched)(1).sfc` is byte-for-byte the base ROM plus `FF5r Super Special Deep Clean.ips`, and
+that IPS contains the record (offset 0x24C75, 1 byte, A9). As shipped the code runs `LDA #$E0 / PHP / BRK` and the BRK vector
+`$0000` executes RAM as code. All four map-166 (Ancient Library) battles hit it, and any battle with a monster that casts blue
+magic; on the base ROM the same battles run normally. The simulator reports `outcome == "crash"`. This is a diagnosis only:
+**the ROMs and the IPS are never modified** (project rule), so the bot must avoid or otherwise handle these battles.
+Use `run.py --rom PATH` to simulate against either ROM.
 
 Sweep on the unmodified ROM (`run.py sweep`, level-1 party, ~3 min): **87 of 511 non-empty battles crash** (list with
 monster names in `crashing_battles.json`); 6 more time out at 20000 frames only because a level-1 party cannot beat them (0xd1, 0x16e, 0x1a1, 0x1b1, 0x1e4, bosses 0x1f7/0x1fe/0x1ff).
