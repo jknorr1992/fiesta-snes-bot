@@ -65,6 +65,24 @@ def fresh_intro(ex, limit=1500):
     return False
 
 
+def pending_trigger(S, s):
+    """event id of an event trigger that stands unfired under the party at its current tile (conditions hold), else 0"""
+    if s.map < 5: return 0
+    ts = S.trig_at(s.map).get((s.x, s.y))
+    if ts is None: return 0
+    return S.pick(s, S.R.trigger_script(ts), s.face, False) or 0
+
+
+def nudge(S, ex, s):
+    """Standing on a trigger tile that never fired (arrival through an entrance): press a direction that cannot move the party (a wall
+    if there is one) so the field loop runs the trigger, then let the scene play."""
+    lm = S.localmap(s)
+    open_dirs = {d for d, _ in lm.moves(s.x, s.y, s.z)}
+    d = next((d for d in (1, 2, 3, 4) if d not in open_dirs), 1)
+    print("   trigger under the party did not fire on arrival: pressing %s to start it" % BTN[d], flush=True)
+    ex.press(BTN[d], 4, 10); ex.wait(30); ex.settle()
+
+
 def goal_fn(spec):
     k, *v = spec.split(":"); v = [int(a) for a in v]
     if k == "map": return (lambda s: s.map == v[0]), "map"
@@ -95,6 +113,13 @@ def main(argv):
         replans = 0
         while True:
             s = live_state(S, ex)
+            for _ in range(3):
+                ev = pending_trigger(S, s)
+                if not ev or ex.u8(0xB57): break
+                ex.wait(60)
+                s2 = live_state(S, ex)
+                if (s2.map, s2.x, s2.y, s2.flags) != (s.map, s.x, s.y, s.flags): s = s2; continue
+                nudge(S, ex, s); s = live_state(S, ex)
             if goal(s): print("goal %s reached" % spec, flush=True); break
             f, k = search(S, s, goal, max_exp=n_exp, wh=1.0 if h else 0.0, h=h, log=2000)
             if not f:
