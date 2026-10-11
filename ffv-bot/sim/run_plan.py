@@ -3,7 +3,7 @@ sys.path.insert(0, '.')
 from execute import *
 from explore import search, chain
 
-CK = "/tmp/claude-0/scratch/ck"
+CK = os.environ.get("CK", "/tmp/claude-0/scratch/ck")
 
 def run(S, ch, ex, start_idx=0, stop_on_diff=True, save=True):
     for i, (p, a, n) in enumerate(ch[start_idx:], start_idx):
