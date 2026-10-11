@@ -36,10 +36,16 @@ class GameData:
     def item_name(self, i): return text(self.r[ITEM_NAMES + 9 * i:ITEM_NAMES + 9 * i + 9])
     def job_name(self, i): return text(self.r[JOB_NAMES + 8 * i:JOB_NAMES + 8 * i + 8])
     def command_name(self, i): return text(self.r[CMD_NAMES + 7 * i:CMD_NAMES + 7 * i + 7])
+    def find_items(self, sub):
+        """[(id, name)] of items whose (9-character, icon-prefixed) ROM name contains `sub`.  Names are truncated, so e.g.
+        "Mythril" matches many weapons: use the id (or a longer unique prefix such as "MageMash")."""
+        return [(i, self.item_name(i)) for i in range(256) if sub.lower() in self.item_name(i).lower().lstrip("?")]
     def item_id(self, name):
-        for i in range(256):
-            if self.item_name(i).lower() == name.lower(): return i
-        raise KeyError(name)
+        """Id of the item whose name equals `name` (leading icon char ignored); KeyError if none, ValueError if ambiguous."""
+        hits = [i for i in range(256) if self.item_name(i).lower().lstrip("?") == name.lower().lstrip("?")]
+        if not hits: raise KeyError(name)
+        if len(hits) > 1: raise ValueError(f"{name!r} is ambiguous: ids {hits}")
+        return hits[0]
     def job_id(self, name):
         for i in range(22):
             if self.job_name(i).lower().startswith(name.lower()[:6]): return i

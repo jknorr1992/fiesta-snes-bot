@@ -6,6 +6,14 @@ blue-magic "learning" loop; as shipped it runs `LDA #$E0 / PHP / BRK` and the BR
 Usage: fix_rom.py <in.sfc> [out.sfc]   (default out: <in>-bluefix.sfc)"""
 import sys
 FIXES = [(0x24C75, 0xA9, 0xE8)]
+def fixed(rom):
+    """Return a copy of ROM bytes with FIXES applied (raises on an unknown ROM)."""
+    d = bytearray(rom)
+    for off, old, new in FIXES:
+        if d[off] not in (old, new): raise ValueError(f"{off:#x} is {d[off]:#04x}, expected {old:#04x}")
+        d[off] = new
+    return bytes(d)
+
 def main():
     src = sys.argv[1]; dst = sys.argv[2] if len(sys.argv) > 2 else src.rsplit(".", 1)[0] + "-bluefix.sfc"
     d = bytearray(open(src, "rb").read())
@@ -14,4 +22,4 @@ def main():
         elif d[off] != old: sys.exit(f"{off:#x} is {d[off]:#04x}, expected {old:#04x}: unknown ROM, not patching")
         else: d[off] = new; print(f"{off:#x}: {old:#04x} -> {new:#04x}")
     open(dst, "wb").write(d); print("wrote", dst)
-main()
+if __name__ == "__main__": main()
