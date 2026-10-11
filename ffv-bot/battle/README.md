@@ -64,9 +64,9 @@ snap = sim.snapshot(); ...; sim.restore(snap)
 it, and any battle with a monster that casts blue magic. The simulator reports `outcome == "crash"` for these.
 This is a diagnosis only: **the ROM is never modified** (project rule), so the bot must avoid or otherwise handle these battles.
 
-Sweep (`run.py sweep`, level-1 party, ~3 min), run once on a copy with that byte corrected to find every affected battle: with the byte corrected none of the 511 non-empty battles crashed. Eight
-time out at 20000 frames only because a level-1 party cannot beat them (0xd1 MiniMage x6, 0x16e/0x1a1/0x1b1/0x1e4,
-bosses 0x1f7 Exdeath, 0x1fe, 0x1ff). On the real ROM the blue-magic battles crash.
+Sweep on the unmodified ROM (`run.py sweep`, level-1 party, ~3 min): **87 of 511 non-empty battles crash** (list with
+monster names in `crashing_battles.json`); 6 more time out at 20000 frames only because a level-1 party cannot beat them (0xd1, 0x16e, 0x1a1, 0x1b1, 0x1e4, bosses 0x1f7/0x1fe/0x1ff).
+Avoiding or handling these battles is up to the bot; the sim never patches the ROM.
 
 ## Files
 
