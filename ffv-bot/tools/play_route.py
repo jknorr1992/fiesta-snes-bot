@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Play-test the generated route (data/event_path.json) on the test bed. Usage: play_route.py <rom.sfc> [first_step [last_step]]
+"""DEPRECATED: follows the old, unsimulated event route; use sim/bot.py (goal-driven, simulator-planned) instead.
+Play-test the generated route (data/event_path.json) on the test bed. Usage: play_route.py <rom.sfc> [first_step [last_step]]
 Saves a state to slot N after each step (slot = step index mod 9 + 1 is NOT used; states are written to /tmp/route_states by copy)."""
 import sys, os, json, time, shutil
 sys.path.insert(0, os.path.dirname(__file__))
