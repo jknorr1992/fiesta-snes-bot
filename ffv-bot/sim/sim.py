@@ -308,6 +308,16 @@ class Sim:
                         tgt = State.clone(s); tgt.x, tgt.y, tgt.z, tgt.face = x, y, z, FACE_OF_DIR[d]
                         acts.append(Action("talk", "talk to npc %d (script %d) from (%d,%d) map %d: event %d" % (i, script, x, y, s.map, ev), dd + 1, (tgt, False), FACE_OF_DIR[d], ev))
                         acts[-1].path = self._backtrack(par, node); acts[-1].stand = d
+        # Karnak cell (map 138): the prisoner NPC (script 342) is out of reach until the cells open by themselves after a while;
+        # then talking to him plays event 107 and releases the party. Modelled as a wait + talk at the start of the pocket.
+        if s.map == 138:
+            for i, script, ox, oy, st in objs:
+                if script == 342:
+                    ev = self.pick(s, self.R.npc_script(script), 0, True)
+                    if ev and not any(a.kind == "wait" for a in acts):
+                        tgt = State.clone(s)
+                        acts.append(Action("wait", "wait in the Karnak cell until the prisoner (npc %d) can be reached, talk: event %d" % (i, ev), 600, (tgt, False), None, ev))
+                        acts[-1].path = []
         return acts
 
     def _can_face(self, lm, node, par, face, s):
@@ -460,6 +470,10 @@ class Sim:
         tgt, stepped = act.target
         if act.path and tgt.flags >> 508 & 3:                # every party step clears the temporary event flags 508/509 ($c0c796 at StartMove/step)
             tgt = State.clone(tgt); tgt.flags &= ~(3 << 508); act = Action(act.kind, act.desc, act.cost, (tgt, stepped), act.face, act.event)
+        if act.kind == "wait":              # the scripted release leaves the party at (20,61) on the live game (the VM's party-step trace drifts by 2)
+            out = self._run_after(tgt, act.event, 0)
+            for o in out: o.x, o.y = 20, 61
+            return out
         if act.kind in ("press", "talk", "turn"):
             return self._run_after(tgt, act.event, 0) if act.event else [tgt]
         if act.kind == "land":

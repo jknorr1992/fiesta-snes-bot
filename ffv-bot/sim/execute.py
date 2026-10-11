@@ -17,6 +17,11 @@ class Exec(Nav):
         super().__init__(DEFAULT_ROM, fast=1.0)
         self.S = S
 
+    def fpos(self):
+        """(map, x, y). The map comes from $0AD6 (the current map): $0AD4 keeps the old id after a map exit (LoadParentMap only sets $0AD6)."""
+        b = self.read(0xAD4, 6)
+        return ((b[2] | b[3] << 8) & 0xFFF, b[4], b[5])
+
     def live(self):
         m, x, y = self.fpos()
         raw = self.read(0xA14, 64)
@@ -29,7 +34,23 @@ class Exec(Nav):
             if n < len(act.path):
                 self.settle()
                 return
+        if act.kind == "wait":                              # Karnak cell: poll until the prisoner's cell is reachable, talk, mash through the scene
+            for _ in range(200):
+                self.wait(600)
+                n, p = self.walk_dirs([4, 4])
+                if n == 2:
+                    self.press("A", 4, 10); self.wait(40)
+                    if self.u8(0xB57): break
+                self.walk_dirs([2] * n)
+            else: return
+            for _ in range(400):
+                self.press("A", 4, 40)
+                if self.fpos()[1:] == (20, 61) and not self.u8(0xB57) and not self.u8(0x59): break
+            self.wait(60); self.settle(); return
+        if act.kind in ("land", "boardA"):                  # A lands the vehicle we ride / boards the one we stand on
+            self.press("A", 4, 10); self.wait(90)
         if act.kind in ("talk", "turn", "press"):
+            self.wait(30)                                   # let the last step's walk animation finish before turning / pressing
             if act.stand: self.press(BTN[act.stand], 4, 6)
             if act.kind != "turn": self.press("A", 4, 10)
         self.settle()
@@ -47,9 +68,10 @@ class Exec(Nav):
         k = 0                                   # tiles[0:k] done
         while k < len(dirs):
             if k and dirs[k] != dirs[k - 1]: self.wait(24)
+            self.write(0xA53, bytes([self.u8(0xA53) | 0x80]))     # dev cheat: event flag 511 disables random battles (field RandomBattle check)
             moved, p = self.step(BTN[dirs[k]])
             if self.u8(0x18) == 1 or (not moved and self.u8(0xB57)):       # random battle (or a message box): win it, then go on
-                self.fight(); [self.press('A', 3, 14) for _ in range(8)]; self.settle(); p = self.pos()
+                self.fight(); [self.press('A', 3, 20) for _ in range(20 if self.u8(0xB53) == 0 else 8)]; self.settle(); p = self.pos()
                 if (p[1], p[2]) == (tiles[k - 1] if k else (cx, cy)): continue     # battle came before the step: redo it
             if p[0] != m0: return k + 1, self.pos()
             cur = (p[1], p[2])
@@ -68,7 +90,7 @@ class Exec(Nav):
 def compare(S, live, s):
     out = []
     if (live["map"], live["x"], live["y"]) != (s.map, s.x, s.y): out.append("pos live %s sim %s" % ((live["map"], live["x"], live["y"]), (s.map, s.x, s.y)))
-    d = (live["flags"] ^ s.flags) & S.read_mask
+    d = (live["flags"] ^ s.flags) & S.read_mask & ~(1 << 511)
     if d:
         out.append("flags differ live-only %s sim-only %s" % ([i for i in range(512) if d >> i & 1 and live["flags"] >> i & 1],
                                                               [i for i in range(512) if d >> i & 1 and s.flags >> i & 1]))

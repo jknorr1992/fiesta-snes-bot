@@ -75,6 +75,7 @@ class Nav(Game):
 
     def fight(self, limit=1500):
         """Win the current battle with cheats; returns True when the battle flag cleared."""
+        self.wait(180)                  # let the battle load: writing the cheats while the battle graphics load can hang the game (black screen)
         for i in range(limit):
             if self.u8(0x18) != 1: return True
             self.cheat_battle()

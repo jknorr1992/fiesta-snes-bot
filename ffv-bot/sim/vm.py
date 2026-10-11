@@ -71,7 +71,7 @@ class VM:
         """map load via e0/e1/e3/entrance: resets per-map state"""
         s.map = m; s.x = x; s.y = y; s.face = face; s.z = 1
         s.mods = {}; s.npcpos = {}; s.npcvis = {}; s.mods2 = {}; s.npcface = {}
-        if m >= 5: s.flags &= ~(0xFFFF << 256)        # LoadSubMap clears $0a34/$0a35 (map-local flags 256-271)
+        s.flags &= ~(0xFFFF << 256)                   # LoadSubMap and LoadWorldMap both clear $0a34/$0a35 (map-local flags 256-271)
         if veh is not None: s.veh = veh
 
     def run(self, s0, ev):
@@ -147,6 +147,7 @@ class VM:
 
     def apply(self, s, c):
         op, b = c.op, c.b
+        if 1 <= op <= 4 or op == 6: s.flags &= ~(3 << 508)          # every party step clears the temporary flags 508/509
         if 1 <= op <= 4:                                  # party walks one tile (camera = party)
             dx, dy = {1: (0, -1), 2: (1, 0), 3: (0, 1), 4: (-1, 0)}[op]
             s.x = (s.x + dx) & 255 if s.map < 5 else (s.x + dx) & 63
@@ -175,7 +176,7 @@ class VM:
         elif op == 0xD6:
             m = (b[1] | b[2] << 8) & 0x1FFF; veh = b[3] >> 5
             s.map = m; s.veh = veh; s.mods = {}; s.npcpos = {}; s.npcvis = {}; s.mods2 = {}; s.npcface = {}
-            if m >= 5: s.flags &= ~(0xFFFF << 256)
+            s.flags &= ~(0xFFFF << 256)
             if veh:
                 v = s.vtab[veh - 1]; v[0] = (v[0] & 0xE0) | (b[3] & 0x1F); v[1] = 0x80; v[2], v[3] = s.x, s.y
         elif op == 0xD2:                                  # show vehicle: map, x, y, vvvaaagg

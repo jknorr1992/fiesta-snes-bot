@@ -12,6 +12,9 @@ def run(S, ch, ex, start_idx=0, stop_on_diff=True, save=True):
         ex.do(p, a)
         lv = ex.live()
         outs = S.execute(p, a)
+        for _ in range(6):                          # a map transition may still be in flight: give it time before judging
+            if any((o.map, o.x, o.y) == (lv["map"], lv["x"], lv["y"]) for o in outs): break
+            ex.wait(60); lv = ex.live()
         match = [o for o in outs if (o.map, o.x, o.y) == (lv["map"], lv["x"], lv["y"])]
         diffs = compare(S, lv, match[0] if match else n)
         print("    live map %d (%d,%d) %.0fs %s" % (lv["map"], lv["x"], lv["y"], time.time() - t, "OK" if not diffs else "DIFF " + "; ".join(diffs)), flush=True)

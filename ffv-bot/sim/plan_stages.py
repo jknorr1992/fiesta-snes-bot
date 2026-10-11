@@ -16,6 +16,9 @@ def stage(S, Rl, s0, name, goal, hfn, n, wh):
 if __name__ == "__main__":
     S = Sim(); Rl = Relaxed(S); s = S.initial()
     allch = []
+    if os.environ.get('START_PKL'):
+        allch = pickle.load(open(os.environ['START_PKL'], 'rb')); s = allch[-1][2]
+        print('continuing from', len(allch), 'steps: map', s.map, s.x, s.y, flush=True)
     spec = sys.argv[1:]
     # stage spec: kind:value[:n[:wh]]   kind in map|flag|event
     for sp in spec:
