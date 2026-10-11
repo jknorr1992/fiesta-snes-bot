@@ -17,7 +17,7 @@ typedef struct Sim {
     uint8_t  fN, fV, fM, fX, fD, fI, fZ, fC, fE;
     /* machine */
     uint64_t instr, cyc_total;
-    uint32_t frame_cyc, frames;
+    uint32_t frame_cyc, frames, cyc_scale, cyc_rem;
     uint8_t  nmitimen, rdnmi, in_nmi_unused, stopped, waiting, nmi_pending;
     uint32_t wmadd;
     uint16_t wrmpy_res, wrdiv_q, wrdiv_r, dividend;
@@ -489,7 +489,7 @@ uint32_t sim_reg(Sim *s, int i) {
 void sim_setreg(Sim *s, int i, uint32_t v) {
     switch (i) { case 0: s->A = v; break; case 1: s->X = v; break; case 2: s->Y = v; break; case 3: s->S = v; break; case 4: s->D = v; break;
     case 5: s->PC = v; break; case 6: s->DB = v; break; case 7: s->PB = v; break; case 8: setP(s, v); break; case 9: s->fE = v; break;
-    case 14: s->nmitimen = v; break; case 15: s->stopped = v; break; }
+    case 14: s->nmitimen = v; break; case 15: s->stopped = v; break; case 16: s->cyc_scale = v; break; }
 }
 void sim_set_joy(Sim *s, int pad, uint16_t v) { s->joy[pad & 3] = v; }
 void sim_skip_hook(Sim *s) { s->skip_hook = 1; }
@@ -541,8 +541,13 @@ int sim_run(Sim *s, uint64_t max_instr, uint32_t max_frames) {
             uint32_t need = s->frame_cyc < VBLANK_CYC ? VBLANK_CYC - s->frame_cyc : FRAME_CYC - s->frame_cyc + VBLANK_CYC;
             s->frame_cyc += need; s->cyc_total += need; s->waiting = 0;
         } else {
+            uint32_t fc0 = s->frame_cyc;
             if (step(s) < 0) { s->PC--; return 5; }
             n++;
+            if (s->cyc_scale) {   /* crude model of what the interpreter does not charge (internal cycles, DRAM refresh) */
+                uint32_t x = (s->frame_cyc - fc0) * s->cyc_scale + s->cyc_rem;
+                s->cyc_rem = x & 1023; s->frame_cyc += x >> 10; s->cyc_total += x >> 10;
+            }
         }
         frame_timing:
         /* frame timing */

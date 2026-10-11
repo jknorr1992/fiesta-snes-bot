@@ -18,6 +18,7 @@ import cpu
 from data import BATTLE_OVER
 
 DEFAULT_ROM = "/mnt/project-files/FFV/Final Fantasy V (Japan) (patched)(1).sfc"
+CYC_SCALE = 62       # +6.05 % cycles (internal cycles, DRAM refresh); battle event timing then drifts < 0.3 % vs snes9x
 EXEC_BATTLE = 0xC20000        # ExecBattle_ext (JSL target)
 EXEC_SOUND = 0xC40004         # ExecSound_ext: HLE'd to an immediate RTL
 VBLANK_WAIT = 0xD97CAC        # spin-wait for the battle NMI (idle-skipped)
@@ -88,6 +89,7 @@ class BattleSim:
         cpu.set_rom(data)
         self.rom = bytes(data)
         self.m = cpu.Machine()
+        self.m.setreg(cpu.R_CYCSCALE, CYC_SCALE)   # extra cycles the interpreter does not model; calibrated against snes9x (validate/diff_battle.py)
         self.m.hook(EXEC_SOUND, 1)
         self.m.hook(VBLANK_WAIT, 3, 0xA5, 0xDB9A)   # `lda $a5 / ora $db9a / bne`: skipped ahead to the next NMI
         self.running = False

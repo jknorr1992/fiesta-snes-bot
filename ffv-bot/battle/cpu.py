@@ -33,7 +33,7 @@ def set_rom(data):
     _rom_buf = ctypes.create_string_buffer(bytes(data), len(data))   # keep alive
     L.rom_set(_rom_buf, len(data))
 
-R_A, R_X, R_Y, R_S, R_D, R_PC, R_DB, R_PB, R_P, R_E, R_INSTR, R_FRAMES, R_FRAMECYC, R_INSTR_HI, R_NMITIMEN, R_STOPPED = range(16)
+R_A, R_X, R_Y, R_S, R_D, R_PC, R_DB, R_PB, R_P, R_E, R_INSTR, R_FRAMES, R_FRAMECYC, R_INSTR_HI, R_NMITIMEN, R_STOPPED, R_CYCSCALE = range(17)
 RUN_RETURNED, RUN_INSTR_LIMIT, RUN_FRAME_LIMIT, RUN_STP, RUN_BADOP = 1, 2, 3, 4, 5
 RUN_HOOK = 100
 
