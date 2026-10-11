@@ -32,13 +32,12 @@ class Nav(Game):
             if self.u8(b) & 0x40 or True:
                 self.write(b + 6, bytes([0x0F, 0x27, 0x0F, 0x27]))      # hp, max hp 9999
                 self.write(b + 10, bytes([0x0F, 0x27, 0x0F, 0x27]))     # mp, max mp 9999
+                self.write(b + 2, bytes([99]))                          # level 99
+                self.write(b + 0x24, bytes([99] * 8))                   # base and current strength, agility, stamina, magic power
     def cheat_battle(self):
         for slot in range(4):
             b = 0x2000 + 0x80 * slot
             self.write(b + 6, bytes([0x0F, 0x27]))
-        for slot in range(4, 12):
-            b = 0x2000 + 0x80 * slot
-            if self.u16(b + 6) > 1: self.write(b + 6, bytes([1, 0]))
 
     # ---- state helpers ----
     def flags256(self):
