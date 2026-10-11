@@ -66,8 +66,15 @@ def build_mem(srom, s, party_gfx=2, frame=0, hide_party=False):
     b[DP + 0x53] = 1; b[DP + 0x3E] = frame & 0xFF
     # camera: positions are in half pixels, screen centre at party pixel (x * 16 + 8, y * 16 + 8) - (0x70, 0x70)
     sx = ((s.x * 16 - 0x70) * 2) & 0x7FF; sy = ((s.y * 16 - 0x70) * 2) & 0x7FF
-    for n in range(3):
-        m.s16(DP + 0x61 + 4 * n, sx); m.s16(DP + 0x63 + 4 * n, sy)
+    m.s16(DP + 0x61, sx); m.s16(DP + 0x63, sy)
+    # BG2/BG3 parallax (_c063d4, _c06bdb): tile position scaled by a per-layer multiplier (1/2, 1, 2) minus an offset, same 32 units per tile.
+    # Auto-scrolling layers ($1121) and the half-tile phase left over from how the party entered the map are not modelled.
+    mult = (1, 0, 2, 1)
+    def par(pos, sel, off): return ((((pos << mult[sel & 3]) & 0xFF) >> 1) - off) & 0x3F
+    h = props[0x14]
+    for reg, v in ((0x65, par(s.x, h, props[0x13])), (0x67, par(s.y, h >> 2, props[0x12])),
+                   (0x69, par(s.x, h >> 4, props[0x11])), (0x6B, par(s.y, h >> 6, props[0x10]))):
+        m.s16(DP + reg, (v - 7) << 5)
     # party sprite variables
     b[DP + 0xBD] = 0 if hide_party else 1; b[DP + 0xBC] = 1; b[DP + 0xC0] = 2
     b[DP + 0xC5] = 0x70; b[DP + 0xC6] = 0x70
