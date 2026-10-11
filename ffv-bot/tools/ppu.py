@@ -35,7 +35,7 @@ def bgr555_to_rgb(c):
 def to8(rgb):
     """(W, 3) 5-bit channel values -> 8-bit as RetroArch's snes9x output (RGB565 expanded): green is widened to 6 bits by replicating its top bit"""
     r = np.floor(rgb[:, 0]).astype(int); g = np.floor(rgb[:, 1]).astype(int); b = np.floor(rgb[:, 2]).astype(int)
-    g6 = (g << 1) | (g >> 4)
+    g6 = g                      # green arrives already widened to 6 bits (snes9x does colour math in RGB565)
     return np.stack([np.floor(r * 255 / 31 + 0.5), np.floor(g6 * 255 / 63 + 0.5), np.floor(b * 255 / 31 + 0.5)], axis=1).astype(np.uint8)
 
 class Layer:
@@ -276,11 +276,13 @@ class PPU:
                 sr, sg, sb = (np.full(W, fixed[i]) for i in range(3))
             sub = bool(cgadsub & 0x80); half = bool(cgadsub & 0x40)
             res = []
-            for m, s in ((mr, sr), (mg, sg), (mb, sb)):
+            w6 = lambda g: (g << 1) | (g >> 4)                 # snes9x blends in RGB565: green has 6 bits
+            mg, sg = w6(np.asarray(mg, dtype=np.int32)), w6(np.asarray(sg, dtype=np.int32))
+            for m, s, top in ((mr, sr, 31), (mg, sg, 63), (mb, sb, 31)):
                 if sub: r_ = m - s
                 else: r_ = m + s
                 if half: r_ = np.where(half_ok, r_ >> 1, r_)
-                r_ = np.clip(r_, 0, 31)
+                r_ = np.clip(r_, 0, top)
                 res.append(np.where(do, r_, m))
             mr, mg, mb = res
             blk = force_black

@@ -155,6 +155,8 @@ class Field:
         blocks = (a & 0x3F, (a >> 6) & 0x3F, (a >> 12) & 0x3F)
         for k, b in enumerate(blocks):
             v[k * 0x2000:(k + 1) * 0x2000] = R.gfx_block(b)
+        # _c08b53: characters $300-$3CF are solid colour-1 tiles (bit plane 0 all set), used by shadow overlays
+        v[0x6000:0x6000 + 0xD0 * 32] = (b"\xff\x00" * 8 + b"\x00\x00" * 8) * 0xD0
         d = (u16(props, 10) >> 10) & 0x3F
         v[0x8000:0x9000] = R.bg3_gfx(d)
         party = w.u8(0xADA)
@@ -322,9 +324,25 @@ class Field:
             from field_sprites import Mem, synthesize
             oam = synthesize(Mem.from_wram(w, self.rom.r))
         else: oam = w.read(0x200, 0x220)
-        p = PPU(vram, cg, oam, self.regs(w, props, mapid), self.scroll(w))
+        p = PPU(vram, cg, oam, self.regs(w, props, mapid), self.scroll(w), self.wave_hdma(w))
         p.bgmaps = self.tilemaps(w)
         return p
+
+    def wave_hdma(self, w):
+        """BG2/BG3 wave effect (maps with HDMA select 1/2 in the map properties): channels 3-6 ($5E bits 3-6) write BG2/BG3 H/V scroll for every line from
+        16-word tables in WRAM ($7F6DE2 horizontal, $7F6E02 vertical) that repeat every 16 lines"""
+        en = w.dp8(0x5E)
+        if not en & 0x78: return {}
+        hw = np.frombuffer(w.read(0x16DE2, 32), dtype="<u2"); vw = np.frombuffer(w.read(0x16E02, 32), dtype="<u2")
+        out = {}
+        for y in range(224):
+            d = {}
+            if en & 0x08: d[("h", 2)] = int(hw[y % 16]) & 0x3FF
+            if en & 0x20: d[("h", 3)] = int(hw[y % 16]) & 0x3FF
+            if en & 0x10: d[("v", 2)] = int(vw[y % 16]) & 0x3FF
+            if en & 0x40: d[("v", 3)] = int(vw[y % 16]) & 0x3FF
+            out[y] = d
+        return out
 
     def render(self, w):
         return self.build(w).render(1)

@@ -32,6 +32,13 @@ Both go through `field_screen.Field.render`, which builds a `ppu.PPU` (VRAM, CGR
   WRAM buffers `$7F8622/$7F86A2/$7F8722` over mode 7 characters `$62/$72/$87`.
 * Object table `$1477 + 0x14 * i` (x, y in tile*256, `$147C` frame, `$147E` flags, `$1481/$1483` tile+attribute words, `$1485` visible bit).
 
+* Capture live frames with the emulator paused (`PAUSE_TOGGLE`); un-paused captures race the animation. Walking tours over maps 122, 20, 21 and
+  the world map (about 45 positions, emulator paused per capture) were all pixel-exact in live mode.
+* snes9x does colour math in RGB565, so green is blended with 6 bits (`ppu.py`); this fixed the last off-by-one green values.
+* VRAM characters $300-$3CF are solid tiles written by `_c08b53` (used by shadow overlays).
+* Maps with HDMA select 1/2 (about 78) run a BG2/BG3 wave: 16-word tables at $7F6DE2/$7F6E02 per scanline (`Field.wave_hdma`, live mode only).
+* BG2/BG3 parallax: `((pos << mult) >> 1) - offset` from the map properties (`field_state`).
+
 ## Usage
 
 ```
@@ -43,6 +50,6 @@ python3 tools/field_state.py /tmp/out.png
 
 ## Known limits
 
-* Sim mode uses frame 0 for palette/tile/water animation, no map title banner, BG3 parallax equals BG1 (no auto-scroll), no HDMA wave effects.
+* Sim mode uses frame 0 for palette/tile/water animation, no map title banner, no BG auto-scroll, no HDMA wave effects.
 * States captured mid-step (scroll or sprite 1 px off) and during screen shake only match when `$10A0..` are read live.
 * World map in sim mode (`WorldMod` flag-driven tile changes) is not synthesized yet.
