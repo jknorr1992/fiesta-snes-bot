@@ -14,7 +14,7 @@ class Diverged(Exception): pass
 
 class Exec(Nav):
     def __init__(self, S):
-        super().__init__(DEFAULT_ROM, fast=1.0)
+        super().__init__(DEFAULT_ROM, fast=1.0, host=os.environ.get('FFV_HOST', '127.0.0.1'))
         self.S = S
 
     def fpos(self):

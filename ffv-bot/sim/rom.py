@@ -5,7 +5,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 from ffv_decomp import decompress, world_row
 from events import u16
 
-DEFAULT_ROM = "/mnt/project-files/FFV/Final Fantasy V (Japan) (patched)(1).sfc"
+DEFAULT_ROM = os.environ.get("FFV_ROM", "/mnt/project-files/FFV/Final Fantasy V (Japan) (patched)(1).sfc")
 
 class Rom:
     def __init__(self, path=DEFAULT_ROM):

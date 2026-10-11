@@ -14,8 +14,8 @@ HOLDS = (3, 14)
 
 class Nav(Game):
     _void = {}
-    def __init__(self, rom_path, fast=1.0):
-        super().__init__(fast=fast)
+    def __init__(self, rom_path, fast=1.0, host="127.0.0.1"):
+        super().__init__(host=host, fast=fast)
         self.world = World(open(rom_path, "rb").read())
         self.blocked = {}
         self.free = {}       # map -> {tile: set of directions}: forced-move trigger tiles (ladders/doorways) that the property rule rejects

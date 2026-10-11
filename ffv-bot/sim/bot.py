@@ -4,7 +4,7 @@ live state, so the player can wander off and the bot picks up from wherever the 
 
 usage: bot.py [--dry] goal [goal ...]        goal = map:N | flag:N | pos:MAP:X:Y     (goals are pursued in order)
   --dry   plan from the live state and print the macro-actions without pressing anything
-env: ROM (default sim.rom DEFAULT_ROM), N_EXP (search budget per goal, default 20000), plus the usual FFV_STATES / network settings.
+env: FFV_ROM (path of the FF5r Clean 'patched(1)' ROM), FFV_HOST (RetroArch host, default 127.0.0.1), N_EXP (search budget per goal, default 20000), plus the usual FFV_STATES / network settings.
 Not in the live state (defaults are assumed): moved/hidden NPC positions, so a plan can be off in scenes that move NPCs."""
 import sys, os, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
