@@ -114,6 +114,8 @@ class Rom:
 
 class Field:
     """builds a ppu.PPU for the current local-map screen from a Wram view"""
+    synth_oam = False           # True: rebuild the OAM with field_sprites instead of reading the shadow at $0200
+
     def __init__(self, rom):
         self.rom = rom if isinstance(rom, Rom) else Rom(rom)
 
@@ -262,7 +264,10 @@ class Field:
         props = w.read(0x110C, 26)
         vram, blocks, d = self.build_vram(w, props, mapid)
         cg = [u16(w.read(0xC00, 512), 2 * i) for i in range(256)]
-        oam = w.read(0x200, 0x220)
+        if self.synth_oam:
+            from field_sprites import Mem, synthesize
+            oam = synthesize(Mem.from_wram(w, self.rom.r))
+        else: oam = w.read(0x200, 0x220)
         p = PPU(vram, cg, oam, self.regs(w, props, mapid), self.scroll(w))
         p.bgmaps = self.tilemaps(w)
         return p
