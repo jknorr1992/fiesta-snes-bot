@@ -33,6 +33,7 @@ class Action:
 DMG_COST = 6                                            # extra path cost of stepping on a damage floor tile (tile property byte 1 bit $20)
 
 class Sim:
+    OLD_MERGE = bool(os.environ.get("FFV_OLD_MERGE"))
     def __init__(self, rom_path=None):
         self.R = Rom(rom_path)
         self.W = World(self.R.r)
@@ -454,10 +455,34 @@ class Sim:
             c = dist[cur] + 1                                   # a trigger tile that does not fire now is plain ground: go on through it
             if not own: dist = dict(dist); par = dict(par); own = True
             dist[npos] = c; par[npos] = (cur, d)
-            f2 = self._world_flood(w, vt, mk, frozenset(vehicle_tiles) if vt == 0 else frozenset(), npos)
-            for node, dd in f2[0].items():
-                if node != npos and c + dd < dist.get(node, 1 << 30): dist[node] = c + dd; par[node] = f2[1][node]
-            for it in f2[2]: wn += 1; heapq.heappush(work, (dist[it[0]], wn, it))
+            if self.OLD_MERGE:
+                f2 = self._world_flood(w, vt, mk, frozenset(vehicle_tiles) if vt == 0 else frozenset(), npos)
+                for node, dd in f2[0].items():
+                    if node != npos and c + dd < dist.get(node, 1 << 30): dist[node] = c + dd; par[node] = f2[1][node]
+                for it in f2[2]: wn += 1; heapq.heappush(work, (dist[it[0]], wn, it))
+                continue
+            # the same merge without flooding the whole piece again: spread from npos only over tiles whose distance improves
+            # (a tile that is not improved keeps a distance from which everything behind it is already at least as close)
+            sc = self.__dict__.setdefault("_wstep_cache", {}).setdefault((w, vt, mk), {})
+            bar = self._world_barriers(w); vts = frozenset(vehicle_tiles) if vt == 0 else frozenset()
+            q = collections.deque([npos]); seen2 = set()
+            while q:
+                cu = q.popleft(); dc = dist[cu] + 1
+                for d2 in (1, 2, 3, 4):
+                    dx, dy = WDIRS[d2]
+                    np2 = ((cu[0] + dx) & 255, (cu[1] + dy) & 255)
+                    bd = np2 in vts
+                    k2 = (cu[0], cu[1], d2, bd)
+                    r2 = sc.get(k2, 0)
+                    if r2 == 0: r2 = sc[k2] = self.W.step(w, vt, cu[0], cu[1], d2, mk, bd)
+                    if r2 is None: continue
+                    if r2[2]:
+                        if (np2, d2) not in seen2: seen2.add((np2, d2)); wn += 1; heapq.heappush(work, (dist[cu], wn, (cu, d2, np2, True)))
+                        continue
+                    if np2 in bar or np2 in vts:
+                        if (np2, d2) not in seen2: seen2.add((np2, d2)); wn += 1; heapq.heappush(work, (dist[cu], wn, (cu, d2, np2, False)))
+                        continue
+                    if dc < dist.get(np2, 1 << 30): dist[np2] = dc; par[np2] = (cu, d2); q.append(np2)
         if vt in (4, 5) or s.veh:     # keep the cheapest disembark per connected piece of land (ship stays at that dock)
             comp = self._foot_comp(w, mk); best = {}
             hot = self._hot_comps(s, w, comp)
