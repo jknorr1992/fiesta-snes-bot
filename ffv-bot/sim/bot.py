@@ -2,12 +2,15 @@
 pad inputs only. After every action it compares the game with the plan; any deviation (or a mismatch) triggers a re-plan from the
 live state, so the player can wander off and the bot picks up from wherever the party stands.
 
-usage: bot.py [--dry] goal [goal ...]        goal = map:N | flag:N | pos:MAP:X:Y     (goals are pursued in order)
+usage: bot.py [--rom PATH] [--dry] goal [goal ...]        goal = map:N | flag:N | pos:MAP:X:Y     (goals are pursued in order)
   --dry   plan from the live state and print the macro-actions without pressing anything
-env: FFV_ROM (path of the FF5r Clean 'patched(1)' ROM), FFV_HOST (RetroArch host, default 127.0.0.1), N_EXP (search budget per goal, default 20000), plus the usual FFV_STATES / network settings.
+ROM: --rom PATH or env FFV_ROM (your FF5r 'patched(1)' ROM; no default path)
+env: FFV_HOST (RetroArch host, default 127.0.0.1), N_EXP (search budget per goal, default 20000), plus the usual FFV_STATES / network settings.
 Not in the live state (defaults are assumed): moved/hidden NPC positions, so a plan can be off in scenes that move NPCs."""
 import sys, os, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+if "--rom" in sys.argv:                      # must be set before the sim modules read FFV_ROM
+    i = sys.argv.index("--rom"); os.environ["FFV_ROM"] = sys.argv[i + 1]; del sys.argv[i:i + 2]
 from execute import *
 from explore import search, chain
 from relaxed import Relaxed

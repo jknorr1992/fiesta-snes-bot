@@ -30,7 +30,7 @@ class Action:
     def __repr__(self): return "<%s %s cost=%s>" % (self.kind, self.desc, self.cost)
 
 class Sim:
-    def __init__(self, rom_path=DEFAULT_ROM):
+    def __init__(self, rom_path=None):
         self.R = Rom(rom_path)
         self.W = World(self.R.r)
         self.V = VM(self.R)

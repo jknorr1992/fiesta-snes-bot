@@ -4,6 +4,7 @@ import sys, os, time, pickle
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools"))
 from sim import *
+from rom import require_rom
 from play_nav import Nav
 from play import IDS
 
@@ -14,7 +15,7 @@ class Diverged(Exception): pass
 
 class Exec(Nav):
     def __init__(self, S):
-        super().__init__(DEFAULT_ROM, fast=1.0, host=os.environ.get('FFV_HOST', '127.0.0.1'))
+        super().__init__(require_rom(), fast=1.0, host=os.environ.get('FFV_HOST', '127.0.0.1'))
         self.S = S
 
     def fpos(self):

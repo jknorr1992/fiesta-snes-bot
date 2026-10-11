@@ -5,10 +5,17 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 from ffv_decomp import decompress, world_row
 from events import u16
 
-DEFAULT_ROM = os.environ.get("FFV_ROM", "/mnt/project-files/FFV/Final Fantasy V (Japan) (patched)(1).sfc")
+DEFAULT_ROM = os.environ.get("FFV_ROM")          # path of the player's own ROM; there is deliberately no default (set FFV_ROM or pass --rom to bot.py)
+
+
+def require_rom():
+    if not DEFAULT_ROM or not os.path.isfile(DEFAULT_ROM):
+        raise SystemExit("ROM not found: set FFV_ROM (or pass --rom PATH to bot.py) to your FF5r 'patched(1)' ROM file")
+    return DEFAULT_ROM
 
 class Rom:
-    def __init__(self, path=DEFAULT_ROM):
+    def __init__(self, path=None):
+        if path is None: path = require_rom()
         self.r = path if isinstance(path, (bytes, bytearray)) else open(path, "rb").read()
         r = self.r
         # layout pointers: u16, bank bumps whenever a pointer is smaller than the previous one
