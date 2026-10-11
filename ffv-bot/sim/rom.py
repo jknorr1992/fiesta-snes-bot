@@ -33,7 +33,8 @@ class Rom:
         if bg == 0: idx = (u16(p, 12) & 0x3FF) - 1
         elif bg == 1: idx = ((u16(p, 13) & 0xFFC) >> 2) - 1
         else: idx = ((u16(p, 14) & 0x3FF0) >> 4) - 1
-        if idx < 0 or idx >= 324: return bytes(4096)
+        if idx < 0 or idx >= 324: return b"\x01" * 4096          # no layout: FillTilemap with tile 1 (LoadSubMap, _c05875)
+        if self.r[self.layout_off[idx]]: return bytes([self.r[self.layout_off[idx]]]) * 4096     # first byte != 0: fill with that tile (LoadSubTilemap)
         d = decompress(self.r, self.layout_off[idx], True)
         return d.ljust(4096, b"\0")[:4096]
 

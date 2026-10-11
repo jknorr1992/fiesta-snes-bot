@@ -12,7 +12,7 @@ from events import EventRom, Cmd
 FACE_DX = {0: (0, -1), 1: (1, 0), 2: (0, 1), 3: (-1, 0)}      # $0adb: 0 up, 1 right, 2 down, 3 left
 
 class State:
-    __slots__ = ("flags", "npcf", "map", "x", "y", "z", "face", "veh", "vtab", "parent", "mods", "npcpos", "npcvis", "log", "ended", "gameover", "pc")
+    __slots__ = ("flags", "npcf", "map", "x", "y", "z", "face", "veh", "vtab", "parent", "mods", "npcpos", "npcvis", "mods2", "npcface", "log", "ended", "gameover", "pc")
     def __init__(self):
         self.flags = 0           # event flags 0-511 as an int bitmask
         self.npcf = 0            # npc flags
@@ -23,6 +23,8 @@ class State:
         self.mods = {}           # (x, y) -> tile id overrides for the current local map's BG1
         self.npcpos = {}         # object index -> (x, y) moved NPCs on the current map
         self.npcvis = {}         # object index -> bool, set by object actions 09/0a on the current map
+        self.mods2 = {}          # (layer, x, y) -> tile id overrides of BG2/BG3 (layer 1, 2); visual only, not part of key()
+        self.npcface = {}        # object index -> graphic frame (facing * 2) set by d3/d8/moves; visual only, not part of key()
         self.log = []
         self.ended = False; self.gameover = False
         self.pc = None
@@ -32,7 +34,7 @@ class State:
         for k in State.__slots__:
             v = getattr(self, k, None)
             if k in ("vtab",): v = [list(a) for a in v]
-            elif k in ("mods", "npcpos", "npcvis"): v = dict(v)
+            elif k in ("mods", "npcpos", "npcvis", "mods2", "npcface"): v = dict(v)
             elif k == "log": v = list(v)
             setattr(s, k, v)
         return s
@@ -68,7 +70,7 @@ class VM:
     def load_map(self, s, m, x, y, face, veh=None):
         """map load via e0/e1/e3/entrance: resets per-map state"""
         s.map = m; s.x = x; s.y = y; s.face = face; s.z = 1
-        s.mods = {}; s.npcpos = {}; s.npcvis = {}
+        s.mods = {}; s.npcpos = {}; s.npcvis = {}; s.mods2 = {}; s.npcface = {}
         if m >= 5: s.flags &= ~(0xFFFF << 256)        # LoadSubMap clears $0a34/$0a35 (map-local flags 256-271)
         if veh is not None: s.veh = veh
 
@@ -172,7 +174,7 @@ class VM:
                 if m < 5: v[2], v[3] = x, y
         elif op == 0xD6:
             m = (b[1] | b[2] << 8) & 0x1FFF; veh = b[3] >> 5
-            s.map = m; s.veh = veh; s.mods = {}; s.npcpos = {}; s.npcvis = {}
+            s.map = m; s.veh = veh; s.mods = {}; s.npcpos = {}; s.npcvis = {}; s.mods2 = {}; s.npcface = {}
             if m >= 5: s.flags &= ~(0xFFFF << 256)
             if veh:
                 v = s.vtab[veh - 1]; v[0] = (v[0] & 0xE0) | (b[3] & 0x1F); v[1] = 0x80; v[2], v[3] = s.x, s.y
@@ -190,12 +192,18 @@ class VM:
                 else: x0, y0 = (b[1] & 0x3F) + s.x, (b[2] + s.y) & 255
                 for j in range(h):
                     for i in range(w): s.mods[((x0 + i) & 63, (y0 + j) & 63)] = b[4 + j * w + i]
+            elif layer < 3:
+                w, h = (b[3] & 15) + 1, (b[3] >> 4) + 1
+                if op == 0xF3: x0, y0 = b[1] & 0x3F, b[2]
+                else: x0, y0 = (b[1] & 0x3F) + s.x, (b[2] + s.y) & 255
+                for j in range(h):
+                    for i in range(w): s.mods2[(layer, (x0 + i) & 63, (y0 + j) & 63)] = b[4 + j * w + i]
         elif op == 0xD3:                                  # set object position (absolute)
-            s.npcpos[b[1] & 0x7F] = (b[2] & 0x3F, b[3])
+            s.npcpos[b[1] & 0x7F] = (b[2] & 0x3F, b[3]); s.npcface[b[1] & 0x7F] = (b[2] >> 6) * 2
         elif op == 0xD8:                                  # relative to the party
             dx = b[2] >> 4; dx = dx - 16 if dx & 8 else dx
             dy = b[2] & 15; dy = dy - 16 if dy & 8 else dy
-            s.npcpos[b[1] & 0x1F] = ((s.x + dx) & 63, (s.y + dy) & 63)
+            s.npcpos[b[1] & 0x1F] = ((s.x + dx) & 63, (s.y + dy) & 63); s.npcface[b[1] & 0x1F] = (b[1] >> 6) * 2
         elif 0x80 <= op < 0xA0:
             o, a = op - 0x80, b[1]
             if 1 <= a <= 4:
@@ -203,7 +211,7 @@ class VM:
                 if p is None: p = self.npc_home(s.map, o)
                 if p is not None:
                     dx, dy = {1: (0, -1), 2: (1, 0), 3: (0, 1), 4: (-1, 0)}[a]
-                    s.npcpos[o] = ((p[0] + dx) & 63, (p[1] + dy) & 63)
+                    s.npcpos[o] = ((p[0] + dx) & 63, (p[1] + dy) & 63); s.npcface[o] = (a - 1) * 2
             elif a == 9: s.npcvis[o] = True
             elif a == 0x0A: s.npcvis[o] = False
         elif op == 0xBF:
