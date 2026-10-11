@@ -145,26 +145,43 @@ class Nav(Game):
             last = cur
         return done, self.pos()
 
+    def on_tile(self):
+        """True when the party stands exactly on a tile: the engine only reads the d-pad then (CheckPlayerMove returns while BG1 x/y scroll
+        $61/$63 is partway between tiles)."""
+        b = self.read(0xB61, 3)
+        return not (b[0] & 0x1f) and not (b[2] & 0x1f)
+
+    def wait_tile(self, limit=60):
+        for _ in range(limit):
+            if self.on_tile(): return True
+            self.wait(1)
+        return False
+
     def step(self, d, frames=14):
-        """One tile in direction d. The engine keeps walking while the key is down at the tile boundary, so tap the key for a few
-        frames (a held key overshoots by a tile), fall back to a longer hold when the tap did not start a move."""
+        """One tile in direction d. The engine reads the d-pad only when the party stands exactly on a tile and keeps walking while the key
+        is down, so: wait until the party is on a tile, tap the key for a few frames, and only try a longer tap after the party is back on
+        a tile and still has not moved (a late-read tap followed by a second tap would walk two tiles)."""
         from play import IDS
         before = self.fpos()
+        moved = False
         for hold in HOLDS:
+            self.wait_tile()
             self._send(IDS[d], True)
-            moved = False
             for i in range(hold):
                 self.wait(1)
             self._send(IDS[d], False)
-            for _ in range(12):
+            for _ in range(20):
                 self.wait(1)
-                if self.fpos() != before: moved = True; break
+                if self.fpos() != before or not self.on_tile(): moved = True; break
             if moved: break
+            self.wait(4)
+            if self.fpos() != before: moved = True; break
         if moved:
+            self.wait_tile()
             last = None
             for _ in range(10):                 # let the walk animation finish before the next command
                 self.wait(2); cur = self.fpos()
-                if cur == last: break
+                if cur == last and self.on_tile(): break
                 last = cur
         else:
             self.wait(2)
