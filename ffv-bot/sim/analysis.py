@@ -23,16 +23,19 @@ class Analysis:
 
     def _scan(self, e):
         f = Effects()
+        pending = None                  # a map load followed by another load with no branch or end in between is only a scene location
         for c in self.E.cmds(e):
             op, b = c.op, c.b
+            if op in (0xF0, 0xF1, 0xFF, 0xCD, 0xE7) and pending is not None: f.loads.append(pending); pending = None
             if op == 0xA2: f.sets.add(b[1])
             elif op == 0xA4: f.sets.add(256 + b[1])
             elif op == 0xA3: f.clears.add(b[1])
             elif op == 0xA5: f.clears.add(256 + b[1])
             elif op == 0xCA: f.npc_on.add(b[1] | b[2] << 8)
             elif op == 0xCB: f.npc_off.add(b[1] | b[2] << 8)
-            elif op in (0xE0, 0xE1, 0xE3): f.loads.append(b[1] | (b[2] & 3) << 8)
-            elif op == 0xD6: f.loads.append((b[1] | b[2] << 8) & 0x1FFF)
+            elif op in (0xE0, 0xE1, 0xE3) or op == 0xD6:
+                m = b[1] | (b[2] & 3) << 8 if op != 0xD6 else (b[1] | b[2] << 8) & 0x1FFF
+                pending = m                  # replaces an earlier load of the same straight-line stretch
             elif op in (0xD2, 0xC2): f.veh = True
             elif op in (0xF3, 0xF4): f.mods = True
             elif 1 <= op <= 6: f.steps = True
@@ -41,6 +44,7 @@ class Analysis:
             elif op == 0xBF and b[1] == 0x00: f.gameover = True
             elif op in (0xBD, 0xE2): f.battle = True
             elif op == 0xBF and b[1] == 1: f.loads.append(-1)
+        if pending is not None: f.loads.append(pending)
         return f
 
     def _closure(self, e):
