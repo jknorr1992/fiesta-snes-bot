@@ -112,6 +112,34 @@ class Rom:
     def color_preset(self, i):
         return tuple(self.r[0x5BB8 + 3 * i:0x5BB8 + 3 * i + 3])
 
+_T96F4 = (0x00, 0x88, 0x10, 0x98, 0x20, 0xA8, 0x30, 0xB8, 0x80, 0x08, 0x90, 0x18, 0xA0, 0x28, 0xB0, 0x38)
+
+def _water_update(m, f):
+    """one frame of the world water animation on a window m whose index 0 is $7F8622 (_c0964c on m[0:0x100], _c09722 on m[0x100:0x180]);
+    m may be a list of anything (used with index lists to derive the permutation)"""
+    x = _T96F4[f & 15] | 7
+    v = m[x]
+    for _ in range(7): m[x] = m[x - 1]; x -= 1
+    x = (x & 0xF8) + 0x47
+    m[x - 0x47] = m[x]                         # sta $7f85db,x
+    for _ in range(7): m[x] = m[x - 1]; x -= 1
+    m[x & 0xF8] = v
+    x = (0, 4, 2, 6, 1, 5, 3, 7)[(f & 0x0E) >> 1] | 0x70
+    v = m[0x100 + x + 8]
+    while True:
+        m[0x100 + x + 8] = m[0x100 + x]
+        x -= 8
+        if (x & 0xF8) == 0: break
+    m[0x100 + x + 8] = m[0x100 + x]
+    m[0x100 + x] = v
+
+def water_unstep(m, f):
+    """undo one animation step (frame counter value f) on the 0x180-byte buffer window m, in place"""
+    idx = list(range(len(m)))
+    _water_update(idx, f)                      # idx[i] = source index of new[i]
+    old = bytes(m)
+    for i, p in enumerate(idx): m[p] = old[i]
+
 class Field:
     """builds a ppu.PPU for the current local-map screen from a Wram view"""
     synth_oam = False           # True: rebuild the OAM with field_sprites instead of reading the shadow at $0200
@@ -133,7 +161,22 @@ class Field:
         if party < 9: v[0xC000:0xC000 + 0x800] = R.party_gfx(party)
         self.load_npc_gfx(v, mapid)
         self.load_overlay_gfx(v, props[8])
+        self.load_map_anim(w, v, props)
         return v, blocks, d
+
+    ANIM_GFX = 0x1F9B00         # DF/9B00 MapAnimGfx
+
+    def load_map_anim(self, w, v, props):
+        """animated tile graphics (_c0996d): 12 slots at $1417 (flags, counter, offset, source) are DMA'd every frame to the last 32 BG
+        characters ($2E00 words) and the BG3 animation characters ($4780 words), from ROM or from the WRAM buffer at $7F8622"""
+        if props[0x1110 - 0x110C] & 0x80: return
+        slots = w.read(0x1417, 0x60)
+        for i in range(12):
+            fl, src = slots[8 * i], u16(slots, 8 * i + 4)
+            n = 0x80 if i < 8 else 0x40
+            data = w.read(0x10000 + src, n) if fl & 0x80 else self.rom.r[0x1F0000 + src:0x1F0000 + src + n]
+            dw = 0x2E00 + 0x40 * i if i < 8 else 0x4780 + 0x20 * (i - 8)
+            v[2 * dw:2 * dw + n] = data
 
     def load_npc_gfx(self, v, mapid):
         """NPC sprite graphics, loaded one after another from VRAM word $6500 (_c03d28); an NPC with the same graphics as the previous one shares them"""
@@ -239,6 +282,14 @@ class Field:
         party = w.u8(0xADA)
         if party < 9:
             pg = np.frombuffer(R.party_gfx(party)[:0x200], dtype=np.uint8)
+        # animated water: the game scrolls pixel rows in WRAM buffers $7F8622-$7F87A1 once per frame (_c0964c, _c09722) *after* DMAing them
+        # to characters $62, $72 and $87, so the VRAM content is the buffer one update step back
+        if w.u16(0xAD6) < 3:
+            win = bytearray(w.read(0x18622, 0x180))
+            water_unstep(win, (w.dp8(0x3E) - 1) & 255)
+            buf[2 * 0x1880 + 1:2 * 0x1880 + 0x100:2] = np.frombuffer(bytes(win[0:0x80]), dtype=np.uint8)
+            buf[2 * 0x1C80 + 1:2 * 0x1C80 + 0x100:2] = np.frombuffer(bytes(win[0x80:0x100]), dtype=np.uint8)
+            if (w.u16(0xAD6) & 1) == 0: buf[2 * 0x21C0 + 1:2 * 0x21C0 + 0x100:2] = np.frombuffer(bytes(win[0x100:0x180]), dtype=np.uint8)
         vram = bytearray(buf.tobytes())
         if party < 9: vram[0xC000:0xC000 + 0x200] = R.party_gfx(party)[:0x200]
         cg = [u16(w.read(0xC00, 512), 2 * i) for i in range(256)]
