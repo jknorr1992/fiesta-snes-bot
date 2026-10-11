@@ -27,7 +27,7 @@ HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 from multiprocessing import Pool
 from data import GameData
-from field import Field, Character, FIELD_CHAR, CHAR_SIZE, RNG_SEED
+from field import Field, Character, FIELD_CHAR, CHAR_SIZE, RNG_SEED, FIELD_ITEMS, FIELD_QTY
 from party import Catalog, _norm
 from policy import SmartPolicy
 
@@ -271,7 +271,7 @@ class Campaign:
         self.jobs = dict(DEFAULT_JOBS)
         if a.jobs_spec: self.jobs.update(json.load(open(a.jobs_spec)))
         self.pool = Pool(a.jobs, initializer=_init, initargs=(a.rom,))
-        self.log = []; self.t0 = time.time(); self.fights_run = 0; self.tents = 0
+        self.fight_log = []; self.log = []; self.t0 = time.time(); self.fights_run = 0; self.tents = 0
         os.makedirs(a.out, exist_ok=True)
         self.state = self.new_state()
         self.jobs_unlocked = False; self.faris_in = False
@@ -377,7 +377,9 @@ class Campaign:
             if stage["kind"] == "world" and self.hp_fraction() < 0.6 and self.heal("world"): pass
             if stage["dungeon"] and k == mid and k > 0 and self.hp_fraction() < 0.8 and self.heal("save point"): pass
             ok, info = self.fight(enc, bg, label, 2 * self.a.runs if scripted else self.a.runs)
+            self.fight_log.append(dict(stage=stage["name"], **info, counted=ok))
             if not ok:
+                open(os.path.join(self.a.out, f"fail_{enc}_{self.fights_run}.bin"), "wb").write(self.state.to_wram())
                 return False, info
         return True, None
 
@@ -404,7 +406,20 @@ class Campaign:
         reserve = self.shops.tent_price
         log = []
         shop(self.state, stock, self.shops, self.d, reserve, self.jobs if self.jobs_unlocked else {}, log)
+        self.stock_potions(stock, reserve, log)
         for l in log: self.say("  bought: " + l)
+
+    def stock_potions(self, stock, reserve, log):
+        """Spare gil (above two Tents) goes to Potions, up to 20, from an item shop of a visited region."""
+        pot = self.d.item_id("Potion")
+        if pot not in stock["item"]: return
+        have = dict(zip(self.state.wram[FIELD_ITEMS:FIELD_ITEMS + 256], self.state.wram[FIELD_QTY:FIELD_QTY + 256])).get(pot, 0)
+        n = min(20 - have, max(0, (self.state.gil - 2 * reserve) // stock["item"][pot]))
+        if n <= 0: return
+        items = {k: v for k, v in zip(self.state.wram[FIELD_ITEMS:FIELD_ITEMS + 256], self.state.wram[FIELD_QTY:FIELD_QTY + 256]) if k}
+        items[pot] = have + n
+        self.state.set_items(items); self.state.gil = self.state.gil - n * stock["item"][pot]
+        log.append(f"{n} Potion(s) ({n * stock['item'][pot]} gil)")
 
     def summary_line(self):
         ps = []
@@ -470,7 +485,7 @@ class Campaign:
 
     def finish(self, report, stuck=None):
         out = os.path.join(self.a.out, "report.json")
-        json.dump(dict(report=report, final=self.summary_line(), tents_used=self.tents, fights_simulated=self.fights_run, stuck=stuck), open(out, "w"), indent=1)
+        json.dump(dict(fights=self.fight_log, report=report, final=self.summary_line(), tents_used=self.tents, fights_simulated=self.fights_run, stuck=stuck), open(out, "w"), indent=1)
         self.say(f"finished: {self.summary_line()} | tents {self.tents} | batches {self.fights_run}")
         return report
 

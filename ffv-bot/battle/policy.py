@@ -24,6 +24,7 @@ class SmartPolicy:
         black = {data.spell_name(i): i for i in range(96) if data.spell_name(i) and data.spell_icon(i) == "black"}
         self.heal_ids = [white[n] for n in HEAL_NAMES if n in white]
         self.attack_ids = [black[n] for n in ATTACK_NAMES if n in black]
+        self.potion_ids = [data.item_id(n) for n in ("Hi-Potion", "Potion")]
         self.died = False
         self.log = []
 
@@ -50,6 +51,14 @@ class SmartPolicy:
                 if cost is not None and cost <= me.mp:
                     if sp != self.heal_ids[0] and (party[ally].max_hp - party[ally].hp) < 40 * (self.heal_ids.index(sp) + 1): continue
                     return Command(MAGIC_COMMAND, 0x20, 0, Command.party_mask(ally), sp)
+        # potions (healer out of MP, or a fighter): the most hurt ally below potion_below
+        low = [(c.hp / max(1, c.max_hp), c.i) for c in party if not c.dead and c.hp > 0 and c.max_hp and c.hp / c.max_hp < self.potion_below]
+        if low:
+            _, ally = min(low)
+            inv = sim.inventory_slots
+            for item in self.potion_ids:
+                slot = next((sl for sl, it in inv.items() if it == item), None)
+                if slot is not None: return Command.item(slot, party=(ally,))
         # attack magic
         for sp in reversed(self.attack_ids):
             cost = self._known(sim, char, sp)
