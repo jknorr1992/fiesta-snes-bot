@@ -69,7 +69,6 @@ class Exec(Nav):
         stall = 0
         while k < len(dirs):
             if k and dirs[k] != dirs[k - 1]: self.wait(24)
-            if os.environ.get('NO_ENCOUNTERS'): self.write(0xA53, bytes([self.u8(0xA53) | 0x80]))     # optional dev cheat (breaks later steps, default off): event flag 511 disables random battles (field RandomBattle check)
             moved, p = self.step(BTN[dirs[k]])
             if self.u8(0x18) == 1 or (not moved and self.u8(0xB57)):       # random battle (or a message box): win it, then go on
                 self.fight(); [self.press('A', 3, 20) for _ in range(20 if self.u8(0xB53) == 0 else 8)]; self.settle(); p = self.pos()
