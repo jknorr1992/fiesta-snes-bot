@@ -152,9 +152,9 @@ class Nav(Game):
         return not (b[0] & 0x1f) and not (b[2] & 0x1f)
 
     def wait_tile(self, limit=60):
-        for _ in range(limit):
+        for _ in range(limit * 2):
             if self.on_tile(): return True
-            self.wait(1)
+            self.wait(0.5)                      # poll at 120 Hz
         return False
 
     def step(self, d, frames=14):
@@ -170,8 +170,8 @@ class Nav(Game):
             for i in range(hold):
                 self.wait(1)
             self._send(IDS[d], False)
-            for _ in range(20):
-                self.wait(1)
+            for _ in range(40):                 # poll at 120 Hz
+                self.wait(0.5)
                 if self.fpos() != before or not self.on_tile(): moved = True; break
             if moved: break
             self.wait(4)
