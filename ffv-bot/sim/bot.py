@@ -2,7 +2,8 @@
 pad inputs only. After every action it compares the game with the plan; any deviation (or a mismatch) triggers a re-plan from the
 live state, so the player can wander off and the bot picks up from wherever the party stands.
 
-usage: bot.py [--rom PATH] [--dry] [--fresh] goal [goal ...]        goal = map:N | flag:N | pos:MAP:X:Y     (goals are pursued in order)
+usage: bot.py [--rom PATH] [--dry] [--fresh] goal [goal ...]        goal = map:N | flag:N | pos:MAP:X:Y | @FILE     (goals are pursued in order;
+  @FILE reads goals from a file, e.g. @../data/goals_to_ship.txt = the story flags from the start to the Karnak ship deck scene, flag 56)
   --fresh run the title screen and opening scenes first (a freshly booted game, no save state)
   --dry   plan from the live state and print the macro-actions without pressing anything
 ROM: --rom PATH or env FFV_ROM (your FF5r 'patched(1)' ROM; no default path)
@@ -36,6 +37,7 @@ def live_state(S, ex):
         base = LocalMap(S.R, m)
         ids = b"".join(ex.read(0x10000 + i, 1024) for i in range(0, 4096, 1024))
         s.mods = {(i % 64, i // 64): ids[i] for i in range(4096) if ids[i] != base.layer[i]}
+        s.z = ex.u8(0xBC3) & 3                  # party z-level ($c3): stairs tiles keep the level the party came from
         S.with_z(s)
     return s
 
@@ -100,7 +102,10 @@ def heuristic(Rl, spec):
 
 def main(argv):
     dry = "--dry" in argv; fresh = "--fresh" in argv
-    goals = [a for a in argv if not a.startswith("--")]
+    goals = []
+    for a in argv:                              # @file = goals listed in a file (whitespace separated)
+        if a.startswith("@"): goals += open(a[1:]).read().split()
+        elif not a.startswith("--"): goals.append(a)
     if not goals: raise SystemExit(__doc__)
     S = Sim(); Rl = Relaxed(S); ex = Exec(S)
     if fresh:
