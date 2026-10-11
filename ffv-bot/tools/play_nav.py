@@ -123,17 +123,22 @@ class Nav(Game):
         return self.fpos() != p
 
     def dialog(self, n=40):
-        """Mash A while a message box is open or a script is running; returns presses used."""
+        """Mash A while a message box is open or a script is running; returns presses used. Non-battle cutscenes run fast-forwarded
+        (fast_forward switches itself off again before battles, name entry and when the scene is over, so walking keeps real-time timing)."""
         k = quiet = 0
-        while k < n:
-            if self.u8(0x18) == 1: self.fight()
-            if self.u16(0xAD4) & 0xFFF == 13: self.name_screen(); continue
-            if not self.busy():
-                quiet += 1
-                if quiet >= 4: break          # idle for a few polls: the scene is over
-                self.wait(4); continue
-            quiet = 0
-            self.press("A", 3, 3); k += 1
+        try:
+            while k < n:
+                if self.u8(0x18) == 1: self.fast_forward(False); self.fight()
+                if self.u16(0xAD4) & 0xFFF == 13: self.fast_forward(False); self.name_screen(); continue
+                if not self.busy():
+                    quiet += 1
+                    if quiet >= 4: break          # idle for a few polls: the scene is over
+                    self.wait(4); continue
+                quiet = 0
+                self.fast_forward(True)           # busy and not in battle: a cutscene
+                self.press("A", 3, 3); k += 1
+        finally:
+            self.fast_forward(False)
         return k
 
     def settle(self, limit=400):

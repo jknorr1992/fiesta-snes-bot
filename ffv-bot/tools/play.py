@@ -40,6 +40,31 @@ class Game:
         self.cmd("WRITE_CORE_RAM %x %s" % (off, " ".join("%02x" % b for b in data)))
         time.sleep(0.02)
 
+    # ---- fast-forward (RetroArch's network command FAST_FORWARD only toggles; the FAST_FORWARD_HOLD variants are rejected by 1.22.2) ----
+    FF_ON = os.environ.get("FFV_FF", "1") != "0"      # FFV_FF=0 turns fast-forwarding in cutscenes off
+    _ff = False; _base_fps = None
+    def frame_rate(self, dt=0.25):
+        """Game frames per second of wall time, from the frame counter at WRAM $094A (0 when it does not tick)."""
+        a = self.u8(0x94A); t = time.time(); time.sleep(dt); b = self.u8(0x94A)
+        return ((b - a) & 255) / (time.time() - t)
+    def fast_forward(self, on):
+        """Fast-forward on/off. Assumes the emulator runs at normal speed when first called; the normal-speed frame rate is measured then, and
+        after each toggle the speed is checked against it (toggling again once if it went the wrong way), so a state changed by hand recovers."""
+        if not self.FF_ON or on == self._ff: return self._ff
+        if self._base_fps is None:
+            r = self.frame_rate()
+            if r > 75:                                  # faster than the console's 60 fps: fast-forward is already running (left on by hand or an earlier run)
+                self.cmd("FAST_FORWARD"); time.sleep(0.3); self._ff = True; r = self.frame_rate()
+                if r > 75: self.FF_ON = False; return False         # still fast: no toggle command to trust
+            if r < 5: self.FF_ON = False; return False              # counter not ticking: cannot verify, leave the speed alone
+            self._base_fps = r; self._ff = False
+            if on == self._ff: return False
+        for _ in range(2):
+            self.cmd("FAST_FORWARD"); time.sleep(0.15)
+            if (self.frame_rate(0.1) > 1.5 * self._base_fps) == on: break
+        self._ff = on
+        print("   fast-forward %s (%.0f -> %.0f fps)" % ("on" if on else "off", self._base_fps, self.frame_rate(0.1)), flush=True)
+        return on
     def u8(self, o): return self.read(o)[0]
     def u16(self, o): b = self.read(o, 2); return b[0] | b[1] << 8
     def shot(self):
