@@ -19,7 +19,7 @@ class MemSrc:
     def __init__(self, m): self.m = m
     def read(self, off, n): return bytes(self.m.b[off:off + n])
 
-def build_mem(srom, s, party_gfx=2, frame=0, objects=None):
+def build_mem(srom, s, party_gfx=2, frame=0, hide_party=False):
     """srom: sim.rom.Rom; s: sim.vm.State on a local map; -> Mem"""
     r = srom.r
     m = Mem(r)
@@ -69,7 +69,7 @@ def build_mem(srom, s, party_gfx=2, frame=0, objects=None):
     for n in range(3):
         m.s16(DP + 0x61 + 4 * n, sx); m.s16(DP + 0x63 + 4 * n, sy)
     # party sprite variables
-    b[DP + 0xBD] = 1; b[DP + 0xBC] = 1; b[DP + 0xC0] = 2
+    b[DP + 0xBD] = 0 if hide_party else 1; b[DP + 0xBC] = 1; b[DP + 0xC0] = 2
     b[DP + 0xC5] = 0x70; b[DP + 0xC6] = 0x70
     b[DP + 0xBB] = (s.face & 3) * 2
     b[DP + 0xC3] = s.z if s.z in (1, 2) else 1
@@ -191,6 +191,23 @@ def render_state(srom, s, world=None, **kw):
     from field_sprites import synthesize
     F = Field(FRom(srom.r)); F.synth_oam = True
     return F.render(Wram(MemSrc(m)))
+
+def render_map(srom, s):
+    """whole local map as a 1024x1024x3 image: the game screen rendered 5x5 times with the party hidden (the visible part is 240x224 pixels,
+    columns 8-247) and the camera moved by changing only the position; NPCs, event modifications and all three layers are drawn exactly
+    as in the game. Pixel (px, py) of the result is map pixel (px, py)."""
+    from vm import State
+    out = np.zeros((1024, 1024, 3), dtype=np.uint8)
+    t = State.__new__(State)
+    for k in State.__slots__: setattr(t, k, getattr(s, k, None))
+    F = Field(FRom(srom.r)); F.synth_oam = True
+    for j in range(5):
+        for i in range(5):
+            t.x = (7 + 15 * i) & 63; t.y = (7 + 14 * j) & 63
+            img = F.render(Wram(MemSrc(build_mem(srom, t, hide_party=True))))
+            ys = (224 * j + np.arange(224)) % 1024; xs = (8 + 240 * i + np.arange(240)) % 1024
+            out[ys[:, None], xs[None, :]] = img[:, 8:248]
+    return out
 
 if __name__ == "__main__":
     from sim import Sim

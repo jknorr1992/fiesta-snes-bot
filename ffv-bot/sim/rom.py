@@ -9,7 +9,7 @@ DEFAULT_ROM = "/mnt/project-files/FFV/Final Fantasy V (Japan) (patched)(1).sfc"
 
 class Rom:
     def __init__(self, path=DEFAULT_ROM):
-        self.r = open(path, "rb").read()
+        self.r = path if isinstance(path, (bytes, bytearray)) else open(path, "rb").read()
         r = self.r
         # layout pointers: u16, bank bumps whenever a pointer is smaller than the previous one
         ptrs = [u16(r, 0xB0000 + 2 * i) for i in range(324)]

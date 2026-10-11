@@ -6,8 +6,8 @@ ROM tables (file offsets, headerless; CE9C00 etc. are SNES addresses, file offse
                    the three graphics blocks (w = p[9..10], p[10..11]), p[12..14] layout indices of BG1/BG2/BG3, p[22] palette index
   layouts          u16 pointers at 0xB0000 (bank increments whenever a pointer is smaller than the previous one), data from 0xB0290;
                    headerless LZSS -> 64x64 tile bytes (row stride 64)
-  tileset          28 u16 pointers at 0xF0000 (relative), headerless LZSS -> 0x800 bytes = four u16[256] planes: top-left, bottom-left,
-                   top-right, bottom-right 8x8 tiles of each 16x16 tile (SNES BG entry: tile 0-9, palette 10-12, priority 13, hflip 14, vflip 15)
+  tileset          28 u16 pointers at 0xF0000 (relative), headerless LZSS -> 0x800 bytes = four u16[256] planes: top-left, top-right,
+                   bottom-left, bottom-right 8x8 tiles of each 16x16 tile (SNES BG entry: tile 0-9, palette 10-12, priority 13, hflip 14, vflip 15)
   graphics         4-byte pointers at 0x1C2D84 (relative to 0x1C2E24), 4bpp planar, blocks land at character 0, 256 and 512
   palettes         0x3BB00 + 256 * p[22]: 8 palettes of 16 BGR555 colours
 Event markers: orange = event trigger (event ids of its script), cyan = entrance (destination map), green = NPC (script id).
@@ -63,45 +63,19 @@ class Maps:
                 out.append((p0 >> s & 1) | (p1 >> s & 1) << 1 | (p2 >> s & 1) << 2 | (p3 >> s & 1) << 3)
         return out
 
-    def render(self, m, layers=(1, 0)):
-        """RGBA PIL image of the map (64x64 16x16 tiles = 1024x1024)"""
+    def render(self, m, state=None, **kw):
+        """RGBA PIL image of local map m (64x64 16x16 tiles = 1024x1024), drawn by the full field renderer (field_state.render_map): all three
+        layers with priorities, colour math, NPCs; `state` (sim.vm.State) adds event flags, tile modifications and moved NPCs."""
         from PIL import Image
-        p = self.props(m)
-        tileset = self.tileset(p[8])
-        w1, w2 = p[9] | p[10] << 8, p[10] | p[11] << 8
-        gi = [p[9] & 0x3F, (w1 >> 6) & 0x3F, (w2 >> 4) & 0x3F]
-        chars = b"".join(self.gfx(g) for g in gi)
-        pal = self.palette(p[22])
-        lay = [self.layout(((p[12] | p[13] << 8) & 0x3FF) - 1), self.layout((((p[13] | p[14] << 8) & 0xFFC) >> 2) - 1),
-               self.layout((((p[14] | p[15] << 8) & 0x3FF0) >> 4) - 1)]
-        cache = {}
-        def tile(entry):
-            if entry not in cache:
-                c = entry & 0x3FF
-                px = self.tile4(chars, c) if c < 768 else [0] * 64
-                if entry & 0x4000: px = [px[y * 8 + 7 - x] for y in range(8) for x in range(8)]
-                if entry & 0x8000: px = [px[(7 - y) * 8 + x] for y in range(8) for x in range(8)]
-                base = (entry >> 10 & 7) * 16
-                cache[entry] = [(0, 0, 0, 0) if v == 0 else pal[base + v] + (255,) for v in px]
-            return cache[entry]
-        img = Image.new("RGBA", (1024, 1024), (0, 0, 0, 255))
-        for li in layers:
-            data = lay[li]
-            if len(data) < 4096: continue
-            layer = Image.new("RGBA", (1024, 1024), (0, 0, 0, 0))
-            px = layer.load()
-            for ty in range(64):
-                for tx in range(64):
-                    t = data[ty * 64 + tx]
-                    for q, (ox, oy) in enumerate(((0, 0), (0, 8), (8, 0), (8, 8))):  # planes: TL, BL, TR, BR
-                        e = tileset[q * 512 + 2 * t] | tileset[q * 512 + 2 * t + 1] << 8
-                        pix = tile(e)
-                        for y in range(8):
-                            for x in range(8):
-                                c = pix[y * 8 + x]
-                                if c[3]: px[tx * 16 + ox + x, ty * 16 + oy + y] = c
-            img.alpha_composite(layer)
-        return img
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "sim"))
+        from field_state import render_map
+        from rom import Rom as SRom
+        from vm import State
+        if not hasattr(self, "_srom"): self._srom = SRom(self.r)
+        if state is None:
+            state = State(); state.npcf = sum(1 << i for i in self._srom.initial_npc_flags())
+        state.map = m
+        return Image.fromarray(render_map(self._srom, state)).convert("RGBA")
 
 def markers(rom_path, maps, m, highlight=()):
     """Event trigger / entrance / NPC marker list: (kind, x, y, label, highlighted)"""
