@@ -20,7 +20,7 @@ L.sim_wram.restype = ctypes.POINTER(ctypes.c_uint8); L.sim_wram.argtypes = [vp]
 L.sim_run.restype = ctypes.c_int; L.sim_run.argtypes = [vp, u64, u32]
 L.sim_reg.restype = u32; L.sim_reg.argtypes = [vp, ctypes.c_int]
 L.sim_setreg.argtypes = [vp, ctypes.c_int, u32]
-L.sim_hook_add.argtypes = [vp, u32, ctypes.c_int]; L.sim_hooks_clear.argtypes = [vp]
+L.sim_hook_add.argtypes = [vp, u32, ctypes.c_int, u32, u32]; L.sim_hooks_clear.argtypes = [vp]
 L.sim_call_long.argtypes = [vp, u32, u32]; L.sim_set_stop_pc.argtypes = [vp, u32]
 L.sim_set_joy.argtypes = [vp, ctypes.c_int, ctypes.c_uint16]; L.sim_skip_hook.argtypes = [vp]
 L.sim_peek.restype = ctypes.c_uint8; L.sim_peek.argtypes = [vp, u32]
@@ -54,7 +54,7 @@ class Machine:
     def rb(self, a): return self.wram[a & 0x1FFFF]
     def rw(self, a): w = self.wram; return w[a] | (w[a + 1] << 8)
     def run(self, max_instr=2**62, max_frames=0): return L.sim_run(self.p, max_instr, max_frames)
-    def hook(self, addr, kind=0): return L.sim_hook_add(self.p, addr, kind)
+    def hook(self, addr, kind=0, a1=0, a2=0): return L.sim_hook_add(self.p, addr, kind, a1, a2)
     def clear_hooks(self): L.sim_hooks_clear(self.p)
     def call_long(self, addr, ret): L.sim_call_long(self.p, addr, ret)
     def skip_hook(self): L.sim_skip_hook(self.p)

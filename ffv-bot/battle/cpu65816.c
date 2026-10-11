@@ -27,7 +27,8 @@ typedef struct Sim {
     uint8_t  dma[8][16];
     uint32_t stop_pc;               /* stop when PC24 hits this */
     uint32_t hook_addr[MAXHOOK];    /* PC24 -> stop with code 100+i  (host handles) */
-    uint8_t  hook_kind[MAXHOOK];    /* 0 = stop and let host handle; 1 = HLE RTL; 2 = HLE RTS */
+    uint8_t  hook_kind[MAXHOOK];    /* 0 = stop and let host handle; 1 = HLE RTL; 2 = HLE RTS; 3 = idle-wait (see below) */
+    uint32_t hook_arg1[MAXHOOK], hook_arg2[MAXHOOK];
     int      nhook;
     uint32_t ring[256]; uint32_t ringpos;
     uint8_t  io_log_on, skip_hook;
@@ -468,9 +469,9 @@ size_t sim_size(void) { return sizeof(Sim); }
 uint8_t *sim_wram(Sim *s) { return s->wram; }
 
 /* hook kinds: 0 stop (host handles), 1 HLE RTL, 2 HLE RTS */
-int sim_hook_add(Sim *s, uint32_t addr, int kind) {
+int sim_hook_add(Sim *s, uint32_t addr, int kind, uint32_t a1, uint32_t a2) {
     uint32_t o; if (s->nhook >= MAXHOOK || !rom_off(addr, &o)) return -1;
-    s->hook_addr[s->nhook] = addr; s->hook_kind[s->nhook] = kind; HOOKMAP[o] = s->nhook + 1; return s->nhook++;
+    s->hook_addr[s->nhook] = addr; s->hook_kind[s->nhook] = kind; s->hook_arg1[s->nhook] = a1; s->hook_arg2[s->nhook] = a2; HOOKMAP[o] = s->nhook + 1; return s->nhook++;
 }
 void sim_hooks_clear(Sim *s) {
     for (int i = 0; i < s->nhook; i++) { uint32_t o; if (rom_off(s->hook_addr[i], &o)) HOOKMAP[o] = 0; }
@@ -518,11 +519,22 @@ int sim_run(Sim *s, uint64_t max_instr, uint32_t max_frames) {
                 int h = HOOKMAP[o] - 1;
                 if (s->hook_kind[h] == 1) { s->PC = pull16(s) + 1; s->PB = pull8(s); continue; }
                 if (s->hook_kind[h] == 2) { s->PC = pull16(s) + 1; continue; }
+                if (s->hook_kind[h] == 3) {
+                    /* spin-wait loop head: if the wait condition (WRAM[arg1] | WRAM[arg2]) holds, nothing can change until the next
+                     * NMI, so jump the clock there instead of executing the spin.  The loop then runs its normal exit test. */
+                    if ((s->wram[s->hook_arg1[h] & 0x1FFFF] | s->wram[s->hook_arg2[h] & 0x1FFFF]) && (s->nmitimen & 0x80)) {
+                        uint32_t need = s->frame_cyc < VBLANK_CYC ? VBLANK_CYC - s->frame_cyc : FRAME_CYC - s->frame_cyc + VBLANK_CYC;
+                        s->frame_cyc += need; s->cyc_total += need;
+                        goto after_step;
+                    }
+                    resume_hook = 1; continue;       /* condition false: run the loop's own exit test */
+                }
                 return 100 + h;
             }
         }
         resume_hook = 0;
         if (n >= max_instr) return 2;
+        if (0) { after_step:; resume_hook = 1; goto frame_timing; }
         s->ring[s->ringpos++ & 255] = pc24;
         if (s->waiting) {
             /* WAI: jump to the next vblank */
@@ -532,6 +544,7 @@ int sim_run(Sim *s, uint64_t max_instr, uint32_t max_frames) {
             if (step(s) < 0) { s->PC--; return 5; }
             n++;
         }
+        frame_timing:
         /* frame timing */
         if (s->frame_cyc >= FRAME_CYC) { s->frame_cyc -= FRAME_CYC; s->frames++; s->nmi_pending = 0; s->rdnmi = 0; s->in_nmi_unused = 0; }
         if (!s->in_nmi_unused && s->frame_cyc >= VBLANK_CYC) {
