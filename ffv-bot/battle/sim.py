@@ -44,6 +44,7 @@ BATTLE_OVER_ADDR = 0x7BDE
 INVENTORY_ITEMS = 0x2734
 MENU_C1 = 0x41B0        # MenuDataC1: open, action flag, command, char, monster targets, party targets, selected item
 DISPLAY_CUR = 0x41CC
+WAIT_MENU_PCS = (0xC218F9, 0xC218FC)       # WaitMenu3: spins until MenuDataC1::MenuOpen is set
 
 # battle command ids that matter for direct commands (JobCmdTbl: Knight 06 05 00 02)
 CMD_ITEM, CMD_FIGHT, CMD_GUARD = 0x02, 0x05, 0x06
@@ -99,7 +100,7 @@ class BattleSim:
         self.frame = 0
         self._open_hook = -1
         self.direct = None         # callable(sim, char) -> Command | None: bypass the real menu (see set_direct)
-        self._close_menu = False
+        self._close_menu = False; self._reset_cd42 = False
         self.log = []
 
     def _hooks(self):
@@ -169,7 +170,7 @@ class BattleSim:
         m.setreg(cpu.R_S, 0x1FFF); m.setreg(cpu.R_P, 0x24); m.setreg(cpu.R_D, 0); m.setreg(cpu.R_DB, 0x7E)
         m.setreg(cpu.R_E, 0)
         if not self.spc: m.reset_hw()          # same hardware phase as a fresh sim, so a reused BattleSim reproduces fresh-sim results frame for frame
-        m.joy(0, 0); self.pad_queue = []; self._close_menu = False
+        m.joy(0, 0); self.pad_queue = []; self._close_menu = False; self._reset_cd42 = False
         m.call_long(EXEC_BATTLE, SENTINEL)
         self.running = True; self.frame = 0
 
@@ -219,8 +220,10 @@ class BattleSim:
         """Advance by `frames` video frames (queued pad input is applied one frame at a time)."""
         for _ in range(frames):
             if not self.running: return
-            if self._close_menu:
-                w = self.w; w[0x41B0] = 0; w[0x41B7] = 0; w[0xCD41] = 0; w[0xCD42] = 0xFF; self._close_menu = False
+            if self._close_menu and self.m.pc24 not in WAIT_MENU_PCS:      # the battle is still spinning in WaitMenu3 (C2:18F9): it has not seen the open menu yet
+                w = self.w; w[0x41B0] = 0; w[0x41B7] = 0; w[0xCD41] = 0; self._close_menu = False; self._reset_cd42 = True
+            if self._reset_cd42 and self.rb(DISPLAY_CUR) == 0xFF:       # the command was taken (ProcessMenuCommand ends with no current char)
+                self.w[0xCD42] = 0xFF; self._reset_cd42 = False
             if self.pad_queue:
                 b, n = self.pad_queue[0]
                 self.m.joy(0, b)

@@ -9,6 +9,8 @@ from sim import BattleSim, Command, A
 from field import Field, Character, FIELD_CHAR, CHAR_SIZE, GIL
 import data as D
 
+BATTLE_DEADLOCK = 0xC21982
+
 class FightPolicy:
     """Every ready character attacks the first living monster (direct command: bypasses the real menu)."""
     mode = "direct"
@@ -52,7 +54,7 @@ def run_battle(field, encounter, background=0, policy=None, max_frames=60000, si
     before = [Character(wram[FIELD_CHAR + CHAR_SIZE * i:FIELD_CHAR + CHAR_SIZE * (i + 1)]) for i in range(4)]
     gil0 = int.from_bytes(wram[GIL:GIL + 3], "little")
     sim.start(encounter, background)
-    crash = ""
+    crash = ""; stall = 0
     try:
         while sim.running and sim.frame < max_frames:
             if pad and sim.menu_char is not None and sim.idle_pad:
@@ -60,6 +62,10 @@ def run_battle(field, encounter, background=0, policy=None, max_frames=60000, si
             elif sim.battle_over and sim.idle_pad:
                 sim.press(A, 2, 12)            # dismiss the result windows
             sim.step()
+            if sim.m.pc24 == BATTLE_DEADLOCK:               # ProcessMenuCommandData's WaitForever (C2:1982): a status change raced the direct command
+                stall += 1
+                if stall > 20: crash = "sim stall: direct command raced a status change (ProcessMenuCommandData deadlock)"; break
+            else: stall = 0
             if sim.crashed():
                 crash = f"executing from RAM at {sim.m.pc24:06X}"; break
     except RuntimeError as e:

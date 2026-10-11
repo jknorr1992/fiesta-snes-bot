@@ -50,11 +50,16 @@ def _run(job):
     d = _W["data"]
     w = bytearray(wram); w[RNG_SEED] = seed & 0xFF
     pol = SmartPolicy(d)
-    r = run_battle(bytes(w), enc, bg, policy=pol, max_frames=40000, sim=_W["sim"], keep_wram=True)
+    for attempt in range(4):             # a rare sim deadlock (direct command raced a status change) is retried on the next seed; counted in `stalls`
+        w[RNG_SEED] = (seed + attempt) & 0xFF
+        pol = SmartPolicy(d)
+        r = run_battle(bytes(w), enc, bg, policy=pol, max_frames=40000, sim=_W["sim"], keep_wram=True)
+        if not r.crash.startswith("sim stall"): break
+    stalls = attempt
     dead_end = any(c.hp == 0 or (c.status1 & 0xC0) for c in r.party_after if c.in_party)
     flawless = r.outcome == "victory" and not pol.died and not dead_end
     return dict(outcome=r.outcome, flawless=flawless, frames=r.frames, gil=r.gil_gained, exp=r.exp_gained, items=r.items_won,
-                wram=r.wram if r.outcome == "victory" else b"")
+                stalls=stalls, wram=r.wram if r.outcome == "victory" else b"")
 
 # ------------------------------------------------------------------ gear / shops
 class Shops:
