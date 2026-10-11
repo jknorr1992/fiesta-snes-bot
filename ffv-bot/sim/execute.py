@@ -67,20 +67,23 @@ class Exec(Nav):
         for d in dirs:
             x, y = (x + DX[d][0]) & mask, (y + DX[d][1]) & mask; tiles.append((x, y))
         k = 0                                   # tiles[0:k] done
-        stall = 0
+        stall = 0; post_battle = False
         while k < len(dirs):
             if k and dirs[k] != dirs[k - 1]: self.wait(24)
             moved, p = self.step(BTN[dirs[k]])
             if self.u8(0x18) == 1 or (not moved and self.u8(0xB57)):       # random battle (or a message box): win it, then go on
-                self.fight(); [self.press('A', 3, 20) for _ in range(20 if self.u8(0xB53) == 0 else 8)]; self.settle(); p = self.pos()
+                self.fight(); post_battle = True; [self.press('A', 3, 20) for _ in range(20 if self.u8(0xB53) == 0 else 8)]; self.settle(); p = self.pos()
                 if (p[1], p[2]) == (tiles[k - 1] if k else (cx, cy)): continue     # battle came before the step: redo it
             if p[0] != m0: return k + 1, self.pos()
             cur = (p[1], p[2])
             j = next((i for i in range(k, min(k + 4, len(tiles))) if tiles[i] == cur), None)
-            if j is None and cur == (tiles[k - 1] if k else (cx, cy)) and stall < 15:     # blocked (wandering NPC, e.g. castle guards): wait and retry
-                stall += 1; self.wait(45); continue
+            if j is None and cur == (tiles[k - 1] if k else (cx, cy)) and stall < (60 if post_battle else 15):     # blocked (wandering NPC, e.g. castle guards): wait and retry
+                stall += 1
+                if post_battle: self.press('A', 3, 20)          # the victory screens (Gil, exp, items) can outlast the first A presses
+                else: self.wait(45)
+                continue
             if j is None: return k, self.pos()
-            stall = 0
+            stall = 0; post_battle = False
             k = j + 1
         return k, self.pos()
 

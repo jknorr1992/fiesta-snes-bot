@@ -2,7 +2,8 @@
 pad inputs only. After every action it compares the game with the plan; any deviation (or a mismatch) triggers a re-plan from the
 live state, so the player can wander off and the bot picks up from wherever the party stands.
 
-usage: bot.py [--rom PATH] [--dry] goal [goal ...]        goal = map:N | flag:N | pos:MAP:X:Y     (goals are pursued in order)
+usage: bot.py [--rom PATH] [--dry] [--fresh] goal [goal ...]        goal = map:N | flag:N | pos:MAP:X:Y     (goals are pursued in order)
+  --fresh run the title screen and opening scenes first (a freshly booted game, no save state)
   --dry   plan from the live state and print the macro-actions without pressing anything
 ROM: --rom PATH or env FFV_ROM (your FF5r 'patched(1)' ROM; no default path)
 env: FFV_HOST (RetroArch host, default 127.0.0.1), N_EXP (search budget per goal, default 20000), plus the usual FFV_STATES / network settings.
@@ -39,6 +40,22 @@ def live_state(S, ex):
     return s
 
 
+def fresh_intro(ex, limit=1500):
+    """From a freshly booted game: A through the title and opening scenes, keep the default name on the name screen, until the player
+    has control on the world map with the opening scenes finished (position steady and no message for several polls)."""
+    quiet = 0
+    for _ in range(limit):
+        m = ex.u16(0xAD4) & 0xFFF
+        if m == 13: ex.name_screen(); quiet = 0; continue
+        if m == 0 and not ex.busy():
+            quiet += 1
+            if quiet >= 6: return True
+            ex.wait(20); continue
+        quiet = 0
+        ex.press("A", 3, 25)
+    return False
+
+
 def goal_fn(spec):
     k, *v = spec.split(":"); v = [int(a) for a in v]
     if k == "map": return (lambda s: s.map == v[0]), "map"
@@ -55,10 +72,13 @@ def heuristic(Rl, spec):
 
 
 def main(argv):
-    dry = "--dry" in argv
+    dry = "--dry" in argv; fresh = "--fresh" in argv
     goals = [a for a in argv if not a.startswith("--")]
     if not goals: raise SystemExit(__doc__)
     S = Sim(); Rl = Relaxed(S); ex = Exec(S)
+    if fresh:
+        print("fresh game: running the title and opening scenes", flush=True)
+        if not fresh_intro(ex): print("intro did not reach the world map", flush=True); return 1
     n_exp = int(os.environ.get("N_EXP", "20000"))
     for spec in goals:
         goal, _ = goal_fn(spec)
@@ -67,7 +87,7 @@ def main(argv):
         while True:
             s = live_state(S, ex)
             if goal(s): print("goal %s reached" % spec, flush=True); break
-            f, k = search(S, s, goal, max_exp=n_exp, wh=1.0 if h else 0.0, h=h)
+            f, k = search(S, s, goal, max_exp=n_exp, wh=1.0 if h else 0.0, h=h, log=2000)
             if not f:
                 print("no plan to %s from map %d (%d,%d) in %d expansions" % (spec, s.map, s.x, s.y, k), flush=True); return 1
             plan = chain(f)
