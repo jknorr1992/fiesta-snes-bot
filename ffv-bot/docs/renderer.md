@@ -39,6 +39,10 @@ Both go through `field_screen.Field.render`, which builds a `ppu.PPU` (VRAM, CGR
 * Maps with HDMA select 1/2 (about 78) run a BG2/BG3 wave: 16-word tables at $7F6DE2/$7F6E02 per scanline (`Field.wave_hdma`, live mode only).
 * BG2/BG3 parallax: `((pos << mult) >> 1) - offset` from the map properties (`field_state`).
 
+* The picture on screen is built from the WRAM of the previous frame: during motion, render the snapshot from one frame earlier
+  (`field_screen.LiveScreen.grab`, polled once per frame, e.g. emulator paused and stepped with `FRAMEADVANCE`). Verified exact on 40 consecutive
+  frames of a walk (hold DOWN, scrolling every frame).
+
 ## Usage
 
 ```
@@ -52,4 +56,4 @@ python3 tools/field_state.py /tmp/out.png
 
 * Sim mode uses frame 0 for palette/tile/water animation, no map title banner, no BG auto-scroll, no HDMA wave effects.
 * States captured mid-step (scroll or sprite 1 px off) and during screen shake only match when `$10A0..` are read live.
-* World map in sim mode (`WorldMod` flag-driven tile changes) is not synthesized yet.
+* World map sim mode (`field_state.world_mem`) uses `world_model.World` for flag-driven tile changes; water phase is not predictable.

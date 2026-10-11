@@ -347,6 +347,25 @@ class Field:
     def render(self, w):
         return self.build(w).render(1)
 
+class LiveScreen:
+    """Shot-for-shot live rendering. While the field engine runs, the picture on screen is built from the WRAM of the PREVIOUS frame (the
+    main loop writes scroll, sprites and animation buffers for the next frame after the NMI has shown the last ones), so during motion the
+    render of the current WRAM is one frame ahead. `LiveScreen.grab(game)` is for a paused emulator stepped with FRAMEADVANCE (or any caller
+    polling once per frame): it returns the render of the snapshot taken at the previous call, i.e. what the screen shows now.
+    When nothing moves the two agree, so a single call on a paused standing game also works (use `render_now`)."""
+    def __init__(self, rom=DEFAULT_ROM):
+        self.field = Field(rom); self.prev = None
+
+    def render_now(self, game):
+        return self.field.render(Wram(LiveWram(game)))
+
+    def grab(self, game):
+        w = Wram(LiveWram(game))
+        img = self.field.render(self.prev if self.prev is not None else w)
+        self.field.render(w)                       # fills w's cache with everything the renderer reads, so it can be replayed next frame
+        self.prev = Wram(type("Snap", (), {"read": (lambda cache: lambda self, o, n: cache[(o, n)])(dict(w.cache))})())
+        return img
+
 if __name__ == "__main__":
     from snes9x_state import State
     st = State(sys.argv[1])
