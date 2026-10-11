@@ -18,8 +18,10 @@ import cpu
 from data import BATTLE_OVER
 
 DEFAULT_ROM = os.environ.get("FFV_ROM", "/mnt/project-files/FFV/Final Fantasy 5 (Japan) (patched)(2).sfc")
-CYC_SCALE = 88       # +8.6 % cycles (internal cycles, DRAM refresh), calibrated vs snes9x on ROM (patched)(2); see validate/diff_battle.py
+SOUND_COST = 0       # master cycles charged per skipped sound-driver call (C4:0004), calibrated vs snes9x
+CYC_SCALE = 0        # fudge factor (per 1024) on top of the exact cycle model; 0 = exact
 EXEC_BATTLE = 0xC20000        # ExecBattle_ext (JSL target)
+INIT_SOUND = 0xC40000
 EXEC_SOUND = 0xC40004         # ExecSound_ext: HLE'd to an immediate RTL
 VBLANK_WAIT = 0xD97CAC        # spin-wait for the battle NMI (idle-skipped)
 OPEN_MENU = 0xC139F9          # battle graphics function $00 "open menu" (direct-command hook)
@@ -89,9 +91,9 @@ class BattleSim:
         cpu.set_rom(data)
         self.rom = bytes(data)
         self.m = cpu.Machine()
-        self.m.setreg(cpu.R_CYCSCALE, CYC_SCALE)   # extra cycles the interpreter does not model; calibrated against snes9x (validate/diff_battle.py)
-        self.m.hook(EXEC_SOUND, 1)
-        self.m.hook(VBLANK_WAIT, 3, 0xA5, 0xDB9A)   # `lda $a5 / ora $db9a / bne`: skipped ahead to the next NMI
+        self.m.setreg(cpu.R_EXACT, 1); self.m.setreg(cpu.R_MEMSEL, 0); self.m.setreg(cpu.R_CYCSCALE, CYC_SCALE)   # extra cycles the interpreter does not model; calibrated against snes9x (validate/diff_battle.py)
+        self.spc = False
+        self._hooks()
         self.running = False
         self.pad_queue = []        # (buttons, frames) consumed one frame at a time
         self.frame = 0
@@ -99,6 +101,42 @@ class BattleSim:
         self.direct = None         # callable(sim, char) -> Command | None: bypass the real menu (see set_direct)
         self._close_menu = False
         self.log = []
+
+    def _hooks(self):
+        self.m.clear_hooks()
+        if not self.spc: self.m.hook(EXEC_SOUND, 1, SOUND_COST)   # sound driver HLE'd: constant stall
+        self.m.hook(VBLANK_WAIT, 3, 0xA5, 0xDB9A)   # `lda $a5 / ora $db9a / bne`: skipped ahead to the next NMI
+
+    def use_spc(self, snes9x_snd=None):
+        """Run the real sound driver on an SPC700 emulation instead of the constant-stall shortcut, so the CPU stalls in ExecSound
+        (it handshakes with the SPC) take as long as on hardware.  snes9x_snd = the 'SND' block of a snes9x save state to start
+        from the exact SPC state; otherwise the driver is uploaded by running the ROM's InitSound."""
+        self.spc = True; self._hooks()
+        if snes9x_snd is not None:
+            import spcstate
+            ram, dsp, v = spcstate.parse(snes9x_snd)
+            self.m.spc_load(ram, dsp, v)
+        else:
+            self.m.spc_enable(True)
+            m = self.m
+            saved = [m.reg(r) for r in (cpu.R_S, cpu.R_P, cpu.R_D, cpu.R_DB, cpu.R_E, cpu.R_NMITIMEN)]
+            m.setreg(cpu.R_S, 0x1FFF); m.setreg(cpu.R_P, 0x24); m.setreg(cpu.R_D, 0); m.setreg(cpu.R_DB, 0x7E); m.setreg(cpu.R_E, 0); m.setreg(cpu.R_NMITIMEN, 0)
+            m.call_long(INIT_SOUND, SENTINEL)
+            while m.pc24 != SENTINEL: m.run(2 ** 62, 1)
+            for r, v in zip((cpu.R_S, cpu.R_P, cpu.R_D, cpu.R_DB, cpu.R_E, cpu.R_NMITIMEN), saved): m.setreg(r, v)
+
+    def load_hardware(self, fil, dma):
+        """Copy the hardware registers a resumed battle depends on from a snes9x save state ('FIL' = register file, 'DMA' = channel records):
+        NMI/IRQ enable, FastROM select, HDMA enable and every DMA/HDMA channel.  Without them an HDMA-driven battle would run with no HDMA
+        (and no HDMA cycle stealing) until the game next rewrites them."""
+        m = self.m
+        m.setreg(cpu.R_NMITIMEN, fil[0x4200]); m.setreg(cpu.R_MEMSEL, fil[0x420D] & 1)
+        for c in range(8):
+            d = dma[c * 19:(c + 1) * 19]
+            ctl = (d[5] & 7) | (8 if d[3] else 0) | (16 if d[4] else 0) | (0x40 if d[1] else 0) | (0x80 if d[0] else 0)
+            for off, v in ((0, ctl), (1, d[6]), (2, d[8]), (3, d[7]), (4, d[9]), (5, d[11]), (6, d[10]), (7, d[12])):     # 16-bit fields are big-endian in the snes9x freeze format
+                m.io_write(0x4300 + 16 * c + off, v)
+        m.io_write(0x420C, fil[0x420C])
 
     # ---- memory helpers
     @property
@@ -141,7 +179,7 @@ class BattleSim:
         self.direct = fn
         if fn: self._open_hook = self.m.hook(OPEN_MENU, 0)
         else:
-            self.m.clear_hooks(); self.m.hook(EXEC_SOUND, 1); self.m.hook(VBLANK_WAIT, 3, 0xA5, 0xDB9A)
+            self._hooks()
 
     def _rts(self):
         s = self.m.reg(cpu.R_S); w = self.w

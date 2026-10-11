@@ -26,6 +26,14 @@ L.sim_set_joy.argtypes = [vp, ctypes.c_int, ctypes.c_uint16]; L.sim_skip_hook.ar
 L.sim_peek.restype = ctypes.c_uint8; L.sim_peek.argtypes = [vp, u32]
 L.sim_ring.argtypes = [vp, ctypes.POINTER(u32)]
 L.sim_size.restype = ctypes.c_size_t
+L.sim_spc_enable.argtypes = [vp, ctypes.c_int]
+L.sim_spc_ram.restype = ctypes.POINTER(ctypes.c_uint8); L.sim_spc_ram.argtypes = [vp]
+L.sim_spc_info.argtypes = [vp, ctypes.POINTER(u32)]
+L.sim_prof.argtypes = [vp, ctypes.c_int, ctypes.POINTER(u64)]
+L.sim_trace.argtypes = [vp, u32, u32]; L.sim_trace_get.restype = u32; L.sim_trace_get.argtypes = [vp, ctypes.POINTER(u64)]
+L.sim_io_write.argtypes = [vp, u32, ctypes.c_uint8]
+L.sim_dma_stats.argtypes = [vp, ctypes.POINTER(u32), ctypes.c_int]
+L.sim_spc_load.argtypes = [vp, ctypes.c_char_p, ctypes.c_char_p, ctypes.POINTER(u32)]
 
 _rom_buf = None
 def set_rom(data):
@@ -33,7 +41,7 @@ def set_rom(data):
     _rom_buf = ctypes.create_string_buffer(bytes(data), len(data))   # keep alive
     L.rom_set(_rom_buf, len(data))
 
-R_A, R_X, R_Y, R_S, R_D, R_PC, R_DB, R_PB, R_P, R_E, R_INSTR, R_FRAMES, R_FRAMECYC, R_INSTR_HI, R_NMITIMEN, R_STOPPED, R_CYCSCALE = range(17)
+R_A, R_X, R_Y, R_S, R_D, R_PC, R_DB, R_PB, R_P, R_E, R_INSTR, R_FRAMES, R_FRAMECYC, R_INSTR_HI, R_NMITIMEN, R_STOPPED, R_CYCSCALE, R_NB, R_EXACT, R_MEMSEL, R_CYC_LO, R_CYC_HI = range(22)
 RUN_RETURNED, RUN_INSTR_LIMIT, RUN_FRAME_LIMIT, RUN_STP, RUN_BADOP = 1, 2, 3, 4, 5
 RUN_HOOK = 100
 
@@ -47,6 +55,20 @@ class Machine:
     @property
     def wram(self):
         return (ctypes.c_uint8 * 0x20000).from_address(ctypes.addressof(L.sim_wram(self.p).contents))
+    def spc_enable(self, on=True): L.sim_spc_enable(self.p, 1 if on else 0)
+    def spc_ram(self): return L.sim_spc_ram(self.p)
+    def spc_info(self):
+        o = (u32 * 8)(); L.sim_spc_info(self.p, o); return list(o)
+    def spc_load(self, ram, dsp, v):
+        a = (u32 * len(v))(*v); L.sim_spc_load(self.p, bytes(ram), bytes(dsp), a)
+    def prof(self, on=1):
+        o = (u64 * 512)(); L.sim_prof(self.p, on, o); return list(o[:256]), list(o[256:])
+    def trace(self, every=64, cap=1 << 20): L.sim_trace(self.p, every, cap); self._trcap = cap
+    def trace_get(self):
+        buf = (u64 * self._trcap)(); n = L.sim_trace_get(self.p, buf); return [(buf[i] >> 24, buf[i] & 0xFFFFFF) for i in range(n)]
+    def io_write(self, addr, v): L.sim_io_write(self.p, addr, v & 0xFF)
+    def dma_stats(self, reset=1):
+        o = (u32 * 512)(); L.sim_dma_stats(self.p, o, reset); return {i: (o[256 + i], o[i]) for i in range(256) if o[256 + i]}   # breg -> (calls, bytes)
     def clone(self): return Machine(L.sim_clone(self.p))
     def copy_from(self, o): L.sim_copy(self.p, o.p)
     def reg(self, i): return L.sim_reg(self.p, i)
@@ -64,3 +86,6 @@ class Machine:
         a = (u32 * 256)(); L.sim_ring(self.p, a); return list(a)
     @property
     def pc24(self): return (self.reg(R_PB) << 16) | self.reg(R_PC)
+
+def _cyc_total(self): return self.reg(R_CYC_LO) | (self.reg(R_CYC_HI) << 32)
+Machine.cyc_total = property(_cyc_total)

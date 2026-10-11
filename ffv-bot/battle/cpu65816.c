@@ -9,6 +9,8 @@
 #define VBLANK_CYC  (225u * 1364u) /* frame cycle where vblank (and NMI) starts */
 #define MAXHOOK 64
 
+#include "spc700.h"
+
 typedef struct Sim {
     uint8_t  wram[0x20000];
     /* registers */
@@ -17,13 +19,22 @@ typedef struct Sim {
     uint8_t  fN, fV, fM, fX, fD, fI, fZ, fC, fE;
     /* machine */
     uint64_t instr, cyc_total;
-    uint32_t frame_cyc, frames, cyc_scale, cyc_rem;
+    uint64_t pcyc[256], pcnt[256]; uint8_t prof_on;
+    uint32_t dma_bytes[256], dma_calls[256];   /* per B-bus register: bytes / channel-runs of general DMA (statistics only) */
+    uint64_t *tr; uint32_t tr_n, tr_cap, tr_every;   /* optional PC trace: (cyc_total << 24 | pc24) every tr_every instructions; buffer shared by clones */
+    uint32_t frame_cyc, frames, cyc_scale, cyc_rem, nb, refresh_line;
+    uint8_t  memsel, xcross, exact, hdma_en, hdma_on[8], hdma_lc[8], hdma_rep[8], hdma_xfer[8];
+    uint32_t hdma_a2a[8], hdma_ind[8];
+    uint32_t hooklog[256][3]; uint32_t hooklogn;
+    uint8_t  hv_flip; uint16_t hv_h, hv_v;
     uint8_t  nmitimen, rdnmi, in_nmi_unused, stopped, waiting, nmi_pending;
     uint32_t wmadd;
     uint16_t wrmpy_res, wrdiv_q, wrdiv_r, dividend;
     uint8_t  wrmpya;
     uint16_t joy[4];
-    uint8_t  apu_port[4], apu_in[4];
+    uint8_t  apu_port[4], apu_in[4], spc_on;
+    uint64_t spc_base;
+    Spc      spc;
     uint8_t  dma[8][16];
     uint32_t stop_pc;               /* stop when PC24 hits this */
     uint32_t hook_addr[MAXHOOK];    /* PC24 -> stop with code 100+i  (host handles) */
@@ -35,6 +46,7 @@ typedef struct Sim {
     uint64_t io_ppu_writes;
 } Sim;
 
+#include "iotab.h"
 static const uint8_t *ROM; static uint32_t ROMSZ;
 static uint8_t *HOOKMAP;   /* per ROM byte: hook index + 1 */
 
@@ -47,17 +59,27 @@ static inline int rom_off(uint32_t a, uint32_t *o) {
     return 0;
 }
 
+/* bring the SPC up to the CPU's current master cycle (SPC runs 15664/328125 cycles per master cycle, as in snes9x) */
+static void spc_sync(Sim *s) {
+    uint64_t target = s->cyc_total * 15664ull / 328125ull + s->spc_base;
+    spc_run(&s->spc, target);
+}
+
 static uint8_t io_read(Sim *s, uint32_t w) {
     switch (w) {
     case 0x2134: case 0x2135: case 0x2136: return 0;
+    case 0x2137: s->hv_h = (s->frame_cyc % 1364) / 4; s->hv_v = s->frame_cyc / 1364; return 0;      /* H/V counter latch (used by the timing validators) */
+    case 0x213C: s->hv_flip ^= 1; return s->hv_flip ? s->hv_h & 0xFF : s->hv_h >> 8;
+    case 0x213D: s->hv_flip ^= 2; return (s->hv_flip & 2) ? s->hv_v & 0xFF : s->hv_v >> 8;
     case 0x2180: { uint8_t v = s->wram[s->wmadd & 0x1FFFF]; s->wmadd = (s->wmadd + 1) & 0x1FFFF; return v; }
-    case 0x2140: case 0x2141: case 0x2142: case 0x2143: return s->apu_in[w & 3];
+    case 0x2140: case 0x2141: case 0x2142: case 0x2143: if (s->spc_on) { spc_sync(s); return s->spc.from_spc[w & 3]; } return s->apu_in[w & 3];
     case 0x4210: { uint8_t v = (s->rdnmi ? 0x80 : 0) | 0x02; s->rdnmi = 0; return v; }
     case 0x4211: return 0;
-    case 0x4212: {
+    case 0x4212: {                                  /* as snes9x: auto-joypad busy during the first 3 vblank lines, H-blank flag from H=1096 */
         uint8_t v = 0;
         if (s->frame_cyc >= VBLANK_CYC) v |= 0x80;
-        if (s->frame_cyc >= VBLANK_CYC && s->frame_cyc < VBLANK_CYC + 4200) v |= 0x01;  /* auto-joypad read busy */
+        if (s->frame_cyc >= VBLANK_CYC && s->frame_cyc < VBLANK_CYC + 3 * 1364) v |= 0x01;
+        if (s->frame_cyc % 1364 >= 1096) v |= 0x40;
         return v;
     }
     case 0x4214: return s->wrdiv_q & 0xFF;  case 0x4215: return s->wrdiv_q >> 8;
@@ -72,13 +94,13 @@ static uint8_t io_read(Sim *s, uint32_t w) {
 
 static void dma_run(Sim *s, uint8_t mask);
 static void io_write(Sim *s, uint32_t w, uint8_t v) {
-    if (w >= 0x2100 && w < 0x2180) { s->io_ppu_writes++; return; }
+    if (w >= 0x2100 && w < 0x2180 && (w < 0x2140 || w > 0x2143)) { s->io_ppu_writes++; return; }
     switch (w) {
     case 0x2180: s->wram[s->wmadd & 0x1FFFF] = v; s->wmadd = (s->wmadd + 1) & 0x1FFFF; return;
     case 0x2181: s->wmadd = (s->wmadd & 0x1FF00) | v; return;
     case 0x2182: s->wmadd = (s->wmadd & 0x100FF) | (v << 8); return;
     case 0x2183: s->wmadd = (s->wmadd & 0x0FFFF) | ((v & 1) << 16); return;
-    case 0x2140: case 0x2141: case 0x2142: case 0x2143: s->apu_port[w & 3] = v; s->apu_in[w & 3] = v; return;
+    case 0x2140: case 0x2141: case 0x2142: case 0x2143: if (s->spc_on) { spc_sync(s); s->spc.to_spc[w & 3] = v; return; } s->apu_port[w & 3] = v; s->apu_in[w & 3] = v; return;
     case 0x4200: s->nmitimen = v; return;
     case 0x4202: s->wrmpya = v; return;
     case 0x4203: s->wrmpy_res = (uint16_t)s->wrmpya * v; s->wrdiv_r = s->wrmpy_res; return;
@@ -88,14 +110,33 @@ static void io_write(Sim *s, uint32_t w, uint8_t v) {
         if (v) { s->wrdiv_q = s->dividend / v; s->wrdiv_r = s->dividend % v; } else { s->wrdiv_q = 0xFFFF; s->wrdiv_r = s->dividend; }
         return;
     case 0x420B: dma_run(s, v); return;
-    case 0x420C: return;
+    case 0x420C: s->hdma_en = v; return;
+    case 0x420D: s->memsel = v & 1; return;
     }
     if (w >= 0x4300 && w < 0x4380) s->dma[(w >> 4) & 7][w & 15] = v;
 }
 
+/* master cycles for one bus access at 24-bit address a */
+static inline uint32_t bus_cost(Sim *s, uint32_t a) {
+    uint32_t b = (a >> 16) & 0xFF, w = a & 0xFFFF;
+    if (!s->exact) return 8;
+    if (b == 0x7E || b == 0x7F) return 8;
+    if (b >= 0xC0) return s->memsel ? 6 : 8;     /* HiROM banks C0-FF are ROM at every address (no I/O window); fast when MEMSEL is set */
+    if (b >= 0x40 && b < 0x7E) return 8;         /* 40-7D: ROM, always slow */
+    if (w < 0x2000) return 8;                    /* system banks 00-3F / 80-BF */
+    if (w < 0x4000) return 6;
+    if (w < 0x4200) return 12;
+    if (w < 0x6000) return 6;
+    if (w < 0x8000) return 8;
+    return (b >= 0x80 && s->memsel) ? 6 : 8;
+}
+static void hdma_line(Sim *s, int charge);
+static void sync_lines(Sim *s, int charge);
+static inline void resync_refresh(Sim *s) { sync_lines(s, 0); }     /* after a clock jump: advance per-line state without charging time */
+static inline void tick(Sim *s, uint32_t c) { s->cyc_total += c; s->frame_cyc += c; }
 static inline uint8_t rd8(Sim *s, uint32_t a) {
     uint32_t b = (a >> 16) & 0xFF, w = a & 0xFFFF, o;
-    s->cyc_total += 8; s->frame_cyc += 8;
+    s->nb++; tick(s, bus_cost(s, a));
     if (b == 0x7E) return s->wram[w];
     if (b == 0x7F) return s->wram[0x10000 + w];
     if ((b < 0x40 || (b >= 0x80 && b < 0xC0)) && w < 0x8000) {
@@ -108,7 +149,7 @@ static inline uint8_t rd8(Sim *s, uint32_t a) {
 }
 static inline void wr8(Sim *s, uint32_t a, uint8_t v) {
     uint32_t b = (a >> 16) & 0xFF, w = a & 0xFFFF;
-    s->cyc_total += 8; s->frame_cyc += 8;
+    s->nb++; tick(s, bus_cost(s, a));
     if (b == 0x7E) { s->wram[w] = v; return; }
     if (b == 0x7F) { s->wram[0x10000 + w] = v; return; }
     if ((b < 0x40 || (b >= 0x80 && b < 0xC0)) && w < 0x8000) {
@@ -133,7 +174,8 @@ static void dma_run(Sim *s, uint8_t mask) {
         uint32_t cnt = d[5] | (d[6] << 8); if (!cnt) cnt = 0x10000;
         int mode = ctl & 7, fixed = ctl & 8, dec = ctl & 16, tob = !(ctl & 0x80);
         int i = 0;
-        uint32_t cnt0 = cnt;
+        uint32_t cnt0 = cnt, fc0 = s->frame_cyc; uint64_t ct0 = s->cyc_total;
+        s->dma_bytes[breg] += cnt; s->dma_calls[breg]++;
         while (cnt) {
             uint8_t br = breg + off[mode][i % len[mode]];
             if (tob) {
@@ -146,7 +188,66 @@ static void dma_run(Sim *s, uint8_t mask) {
             i++; cnt--;
         }
         d[2] = src & 0xFF; d[3] = (src >> 8) & 0xFF; d[5] = 0; d[6] = 0;
-        s->cyc_total += 8 * cnt0; s->frame_cyc += 8 * cnt0;
+        s->frame_cyc = fc0; s->cyc_total = ct0;         /* DMA runs at 8 master cycles per byte regardless of the bus speed */
+        tick(s, 8 * cnt0 + (s->exact ? 8 : 0));
+    }
+    if (s->exact) tick(s, 16);                         /* DMA start / CPU resync overhead */
+}
+
+
+/* ---- HDMA: modelled only for its CPU cost (the table walk is real, the PPU writes are dropped) ---- */
+static uint8_t peek8(Sim *s, uint32_t a) { uint64_t ct = s->cyc_total; uint32_t fc = s->frame_cyc, nb = s->nb; uint8_t v = rd8(s, a); s->cyc_total = ct; s->frame_cyc = fc; s->nb = nb; return v; }
+static const int HDMA_LEN[8] = {1,2,2,4,4,4,2,4};
+static void hdma_load_count(Sim *s, int c, int charge) {
+    uint8_t *d = s->dma[c]; int indirect = d[0] & 0x40;
+    uint8_t cnt = peek8(s, s->hdma_a2a[c]); s->hdma_a2a[c] = (s->hdma_a2a[c] & 0xFF0000) | ((s->hdma_a2a[c] + 1) & 0xFFFF);
+    if (charge) tick(s, 8);
+    if (!cnt) { s->hdma_on[c] = 0; return; }
+    s->hdma_lc[c] = cnt & 0x7F; s->hdma_rep[c] = cnt & 0x80; s->hdma_xfer[c] = 1;
+    if (indirect) {
+        uint32_t a = s->hdma_a2a[c]; uint32_t lo = peek8(s, a), hi = peek8(s, (a & 0xFF0000) | ((a + 1) & 0xFFFF));
+        s->hdma_ind[c] = ((uint32_t)d[7] << 16) | lo | (hi << 8);
+        s->hdma_a2a[c] = (a & 0xFF0000) | ((a + 2) & 0xFFFF);
+        if (charge) tick(s, 16);
+    }
+}
+static void hdma_frame_init(Sim *s) {
+    int any = 0;
+    for (int c = 0; c < 8; c++) {
+        s->hdma_on[c] = 0;
+        if (!(s->hdma_en & (1 << c))) continue;
+        uint8_t *d = s->dma[c];
+        s->hdma_a2a[c] = d[2] | (d[3] << 8) | (d[4] << 16);
+        s->hdma_on[c] = 1; any = 1;
+        hdma_load_count(s, c, 1);
+        tick(s, 8);
+    }
+    if (any) tick(s, 18);
+}
+static void hdma_line(Sim *s, int charge) {
+    int any = 0;
+    for (int c = 0; c < 8; c++) {
+        if (!s->hdma_on[c]) continue;
+        any = 1;
+        uint8_t *d = s->dma[c]; int indirect = d[0] & 0x40, n = HDMA_LEN[d[0] & 7];
+        if (charge) tick(s, 8);
+        if (s->hdma_xfer[c]) {
+            if (charge) tick(s, 8 * n);
+            if (indirect) s->hdma_ind[c] = (s->hdma_ind[c] & 0xFF0000) | ((s->hdma_ind[c] + n) & 0xFFFF);
+            else s->hdma_a2a[c] = (s->hdma_a2a[c] & 0xFF0000) | ((s->hdma_a2a[c] + n) & 0xFFFF);
+        }
+        s->hdma_xfer[c] = s->hdma_rep[c] ? 1 : 0;
+        if (--s->hdma_lc[c] == 0) hdma_load_count(s, c, charge);
+    }
+    if (any && charge) tick(s, 18);
+}
+
+/* per-scanline events: DRAM refresh (40 cycles at H=538, CPU stalled) and HDMA (lines 0-224) */
+static void sync_lines(Sim *s, int charge) {
+    while (s->refresh_line < 262 && s->frame_cyc >= s->refresh_line * 1364u + 538u) {
+        if (charge) tick(s, 40);
+        if (s->refresh_line < 225) hdma_line(s, charge);
+        s->refresh_line++;
     }
 }
 
@@ -175,17 +276,18 @@ static inline uint32_t fetch24(Sim *s) { uint32_t l = fetch16(s); return l | (fe
 
 #define IDX(r) (s->fX ? ((r) & 0xFF) : (r))
 /* effective-address helpers (return 24-bit) */
-static inline uint32_t ea_dp(Sim *s)   { return (uint16_t)(s->D + fetch8(s)); }
-static inline uint32_t ea_dpx(Sim *s)  { return (uint16_t)(s->D + fetch8(s) + IDX(s->X)); }
-static inline uint32_t ea_dpy(Sim *s)  { return (uint16_t)(s->D + fetch8(s) + IDX(s->Y)); }
-static inline uint32_t ea_ind(Sim *s)  { uint16_t p = rd16_b0(s, (uint16_t)(s->D + fetch8(s))); return ((uint32_t)s->DB << 16) | p; }
-static inline uint32_t ea_indx(Sim *s) { uint16_t p = rd16_b0(s, (uint16_t)(s->D + fetch8(s) + IDX(s->X))); return ((uint32_t)s->DB << 16) | p; }
-static inline uint32_t ea_indy(Sim *s) { uint16_t p = rd16_b0(s, (uint16_t)(s->D + fetch8(s))); return (((uint32_t)s->DB << 16) + p + IDX(s->Y)) & 0xFFFFFF; }
-static inline uint32_t ea_lind(Sim *s) { return rd24_b0(s, (uint16_t)(s->D + fetch8(s))); }
-static inline uint32_t ea_lindy(Sim *s){ return (rd24_b0(s, (uint16_t)(s->D + fetch8(s))) + IDX(s->Y)) & 0xFFFFFF; }
+static inline void dl(Sim *s) { if (s->exact && (s->D & 0xFF)) tick(s, 6); }
+static inline uint32_t ea_dp(Sim *s)   { dl(s); return (uint16_t)(s->D + fetch8(s)); }
+static inline uint32_t ea_dpx(Sim *s)  { dl(s); return (uint16_t)(s->D + fetch8(s) + IDX(s->X)); }
+static inline uint32_t ea_dpy(Sim *s)  { dl(s); return (uint16_t)(s->D + fetch8(s) + IDX(s->Y)); }
+static inline uint32_t ea_ind(Sim *s)  { dl(s); uint16_t p = rd16_b0(s, (uint16_t)(s->D + fetch8(s))); return ((uint32_t)s->DB << 16) | p; }
+static inline uint32_t ea_indx(Sim *s) { dl(s); uint16_t p = rd16_b0(s, (uint16_t)(s->D + fetch8(s) + IDX(s->X))); return ((uint32_t)s->DB << 16) | p; }
+static inline uint32_t ea_indy(Sim *s) { dl(s); uint16_t p = rd16_b0(s, (uint16_t)(s->D + fetch8(s))); s->xcross = !s->fX || ((p ^ (p + IDX(s->Y))) & 0xFF00) != 0; return (((uint32_t)s->DB << 16) + p + IDX(s->Y)) & 0xFFFFFF; }
+static inline uint32_t ea_lind(Sim *s) { dl(s); return rd24_b0(s, (uint16_t)(s->D + fetch8(s))); }
+static inline uint32_t ea_lindy(Sim *s){ dl(s); return (rd24_b0(s, (uint16_t)(s->D + fetch8(s))) + IDX(s->Y)) & 0xFFFFFF; }
 static inline uint32_t ea_abs(Sim *s)  { return ((uint32_t)s->DB << 16) | fetch16(s); }
-static inline uint32_t ea_absx(Sim *s) { return (((uint32_t)s->DB << 16) + fetch16(s) + IDX(s->X)) & 0xFFFFFF; }
-static inline uint32_t ea_absy(Sim *s) { return (((uint32_t)s->DB << 16) + fetch16(s) + IDX(s->Y)) & 0xFFFFFF; }
+static inline uint32_t ea_absx(Sim *s) { uint16_t b = fetch16(s); s->xcross = !s->fX || ((b ^ (b + IDX(s->X))) & 0xFF00) != 0; return (((uint32_t)s->DB << 16) + b + IDX(s->X)) & 0xFFFFFF; }
+static inline uint32_t ea_absy(Sim *s) { uint16_t b = fetch16(s); s->xcross = !s->fX || ((b ^ (b + IDX(s->Y))) & 0xFF00) != 0; return (((uint32_t)s->DB << 16) + b + IDX(s->Y)) & 0xFFFFFF; }
 static inline uint32_t ea_long(Sim *s) { return fetch24(s); }
 static inline uint32_t ea_longx(Sim *s){ return (fetch24(s) + IDX(s->X)) & 0xFFFFFF; }
 static inline uint32_t ea_sr(Sim *s)   { return (uint16_t)(s->S + fetch8(s)); }
@@ -272,22 +374,23 @@ static void interrupt(Sim *s, uint16_t vec) {
 static int step(Sim *s) {
     uint8_t op = fetch8(s);
     uint32_t ea; uint16_t v; int b0;
-    s->cyc_total += 6; s->frame_cyc += 6;
+    tick(s, s->exact ? IOT[op] * 6u : 6u);
     s->instr++;
 #define RDM(ea,bank0)  (s->fM ? (uint16_t)rd8(s, ea) : rdw(s, ea, bank0))
 #define WRM(ea,val,bank0) do { if (s->fM) wr8(s, ea, (val) & 0xFF); else wrw(s, ea, val, bank0); } while (0)
 #define IMMM()  (s->fM ? (uint16_t)fetch8(s) : fetch16(s))
 #define IMMX()  (s->fX ? (uint16_t)fetch8(s) : fetch16(s))
 #define SETA(val) do { if (s->fM) s->A = (s->A & 0xFF00) | ((val) & 0xFF); else s->A = (val); } while (0)
+#define XC() do { if (s->exact && s->xcross) tick(s, 6); } while (0)
 #define G1(base, STMT) \
     case base+0x09: v = IMMM(); STMT; break; \
     case base+0x05: ea = ea_dp(s);   v = RDM(ea,1); STMT; break; \
     case base+0x15: ea = ea_dpx(s);  v = RDM(ea,1); STMT; break; \
     case base+0x0D: ea = ea_abs(s);  v = RDM(ea,0); STMT; break; \
-    case base+0x1D: ea = ea_absx(s); v = RDM(ea,0); STMT; break; \
-    case base+0x19: ea = ea_absy(s); v = RDM(ea,0); STMT; break; \
+    case base+0x1D: ea = ea_absx(s); XC(); v = RDM(ea,0); STMT; break; \
+    case base+0x19: ea = ea_absy(s); XC(); v = RDM(ea,0); STMT; break; \
     case base+0x01: ea = ea_indx(s); v = RDM(ea,0); STMT; break; \
-    case base+0x11: ea = ea_indy(s); v = RDM(ea,0); STMT; break; \
+    case base+0x11: ea = ea_indy(s); XC(); v = RDM(ea,0); STMT; break; \
     case base+0x12: ea = ea_ind(s);  v = RDM(ea,0); STMT; break; \
     case base+0x03: ea = ea_sr(s);   v = RDM(ea,1); STMT; break; \
     case base+0x13: ea = ea_sry(s);  v = RDM(ea,0); STMT; break; \
@@ -319,7 +422,7 @@ static int step(Sim *s) {
     case opdpx:  ea = ea_dpx(s);  v = RDM(ea,1); v = FN(s, v); WRM(ea,v,1); break; \
     case opabs:  ea = ea_abs(s);  v = RDM(ea,0); v = FN(s, v); WRM(ea,v,0); break; \
     case opabsx: ea = ea_absx(s); v = RDM(ea,0); v = FN(s, v); WRM(ea,v,0); break;
-#define BR(cond) do { int8_t d = (int8_t)fetch8(s); if (cond) { s->PC += d; s->cyc_total += 6; s->frame_cyc += 6; } } while (0)
+#define BR(cond) do { int8_t d = (int8_t)fetch8(s); if (cond) { s->PC += d; tick(s, 6); } } while (0)
 
     switch (op) {
     G1(0x00, { SETA((s->A | v)); NZM(s->A); })              /* ORA */
@@ -357,12 +460,12 @@ static int step(Sim *s) {
     case 0xA6: ea = ea_dp(s);  v = RDX(ea,1); s->X = v; NZX(v); break;
     case 0xB6: ea = ea_dpy(s); v = RDX(ea,1); s->X = v; NZX(v); break;
     case 0xAE: ea = ea_abs(s); v = RDX(ea,0); s->X = v; NZX(v); break;
-    case 0xBE: ea = ea_absy(s);v = RDX(ea,0); s->X = v; NZX(v); break;
+    case 0xBE: ea = ea_absy(s); XC(); v = RDX(ea,0); s->X = v; NZX(v); break;
     case 0xA0: v = IMMX(); s->Y = v; NZX(v); break;
     case 0xA4: ea = ea_dp(s);  v = RDX(ea,1); s->Y = v; NZX(v); break;
     case 0xB4: ea = ea_dpx(s); v = RDX(ea,1); s->Y = v; NZX(v); break;
     case 0xAC: ea = ea_abs(s); v = RDX(ea,0); s->Y = v; NZX(v); break;
-    case 0xBC: ea = ea_absx(s);v = RDX(ea,0); s->Y = v; NZX(v); break;
+    case 0xBC: ea = ea_absx(s); XC(); v = RDX(ea,0); s->Y = v; NZX(v); break;
 #define WRX(ea,val,b0) do { if (s->fX) wr8(s, ea, (val) & 0xFF); else wrw(s, ea, val, b0); } while (0)
     case 0x86: ea = ea_dp(s);  WRX(ea, s->X, 1); break;
     case 0x96: ea = ea_dpy(s); WRX(ea, s->X, 1); break;
@@ -452,6 +555,7 @@ static int step(Sim *s) {
             if (s->fX) { s->X &= 0xFF; s->Y &= 0xFF; }
             s->A--;
             if (s->A == 0xFFFF) break;
+            if (s->exact) tick(s, 3 * bus_cost(s, ((uint32_t)s->PB << 16) | s->PC) + 12);   /* the next byte re-fetches opcode+operands (7 cycles per byte) */
         }
     } break;
     default: return -1;
@@ -464,7 +568,7 @@ static int step(Sim *s) {
 Sim *sim_new(void) { Sim *s = calloc(1, sizeof(Sim)); s->stop_pc = 0xFFFFFFFFu; s->fE = 0; s->fM = 1; s->fX = 1; s->fI = 1; return s; }
 void sim_free(Sim *s) { free(s); }
 void sim_copy(Sim *dst, const Sim *src) { memcpy(dst, src, sizeof(Sim)); }
-Sim *sim_clone(const Sim *src) { Sim *s = malloc(sizeof(Sim)); memcpy(s, src, sizeof(Sim)); return s; }
+Sim *sim_clone(const Sim *src) { Sim *s = malloc(sizeof(Sim)); memcpy(s, src, sizeof(Sim)); s->tr = 0; return s; }
 size_t sim_size(void) { return sizeof(Sim); }
 uint8_t *sim_wram(Sim *s) { return s->wram; }
 
@@ -483,14 +587,38 @@ uint32_t sim_reg(Sim *s, int i) {
     switch (i) { case 0: return s->A; case 1: return s->X; case 2: return s->Y; case 3: return s->S; case 4: return s->D;
     case 5: return s->PC; case 6: return s->DB; case 7: return s->PB; case 8: return getP(s); case 9: return s->fE;
     case 10: return (uint32_t)s->instr; case 11: return s->frames; case 12: return s->frame_cyc; case 13: return (uint32_t)(s->instr >> 32);
-    case 14: return s->nmitimen; case 15: return s->stopped; }
+    case 14: return s->nmitimen; case 15: return s->stopped; case 17: return s->nb; case 18: return s->exact; case 19: return s->memsel; case 20: return (uint32_t)s->cyc_total; case 21: return (uint32_t)(s->cyc_total >> 32); }
     return 0;
 }
 void sim_setreg(Sim *s, int i, uint32_t v) {
     switch (i) { case 0: s->A = v; break; case 1: s->X = v; break; case 2: s->Y = v; break; case 3: s->S = v; break; case 4: s->D = v; break;
     case 5: s->PC = v; break; case 6: s->DB = v; break; case 7: s->PB = v; break; case 8: setP(s, v); break; case 9: s->fE = v; break;
-    case 14: s->nmitimen = v; break; case 15: s->stopped = v; break; case 16: s->cyc_scale = v; break; }
+    case 14: s->nmitimen = v; break; case 15: s->stopped = v; break; case 12: s->frame_cyc = v; resync_refresh(s); break; case 16: s->cyc_scale = v; break; case 17: s->nb = v; break; case 18: s->exact = v; break; case 19: s->memsel = v; break; }
 }
+uint32_t sim_hooklog(Sim *s, uint32_t *out) { for (uint32_t i = 0; i < s->hooklogn; i++) { out[3*i] = s->hooklog[i][0]; out[3*i+1] = s->hooklog[i][1]; out[3*i+2] = s->hooklog[i][2]; } return s->hooklogn; }
+void sim_spc_enable(Sim *s, int on) {
+    s->spc_on = on;
+    if (on) { spc_reset(&s->spc); s->spc_base = s->spc.cyc - s->cyc_total * 15664ull / 328125ull; s->spc.cyc = 0; s->spc_base = 0 - s->cyc_total * 15664ull / 328125ull; }
+}
+/* import a running SPC state: v = pc,a,x,y,sp,psw, ctl,dspaddr,test, tgt[3], cnt[3], stage[3], cyc phase (mod 128), to_spc (packed), from_spc (packed) */
+void sim_spc_load(Sim *s, const uint8_t *ram, const uint8_t *dsp, const uint32_t *v) {
+    Spc *p = &s->spc;
+    spc_reset(p); memcpy(p->ram, ram, 65536); memcpy(p->dsp, dsp, 128);
+    p->pc = v[0]; p->a = v[1]; p->x = v[2]; p->y = v[3]; p->sp = v[4]; p->psw = v[5];
+    p->ctl = v[6] & 0xFF; p->dspaddr = v[7]; p->test = v[8];
+    for (int t = 0; t < 3; t++) { p->tgt[t] = v[9 + t]; p->cnt[t] = v[12 + t]; p->stage[t] = v[15 + t]; p->en[t] = (p->ctl >> t) & 1; }
+    p->cyc = (1ull << 20) + (v[18] & 127);
+    for (int i = 0; i < 4; i++) { p->to_spc[i] = (v[19] >> (8 * i)) & 0xFF; p->from_spc[i] = (v[20] >> (8 * i)) & 0xFF; }
+    s->spc_on = 1; s->spc_base = p->cyc - s->cyc_total * 15664ull / 328125ull;
+}
+uint8_t *sim_spc_ram(Sim *s) { return s->spc.ram; }
+void sim_spc_info(Sim *s, uint32_t *o) { o[0] = s->spc.pc; o[1] = s->spc.a | s->spc.x << 8 | s->spc.y << 16 | s->spc.sp << 24; o[2] = s->spc.psw; o[3] = (uint32_t)s->spc.cyc; o[4] = s->spc.stopped; o[5] = s->spc.to_spc[0] | s->spc.to_spc[1] << 8 | s->spc.to_spc[2] << 16 | s->spc.to_spc[3] << 24; o[6] = s->spc.from_spc[0] | s->spc.from_spc[1] << 8 | s->spc.from_spc[2] << 16 | s->spc.from_spc[3] << 24; }
+void sim_prof(Sim *s, int on, uint64_t *out) { s->prof_on = on; if (out) { for (int i = 0; i < 256; i++) { out[i] = s->pcyc[i]; out[256 + i] = s->pcnt[i]; } } if (on == 2) { memset(s->pcyc, 0, sizeof s->pcyc); memset(s->pcnt, 0, sizeof s->pcnt); s->prof_on = 1; } }
+void sim_trace(Sim *s, uint32_t every, uint32_t cap) { free(s->tr); s->tr = every ? malloc(8ull * cap) : 0; s->tr_n = 0; s->tr_cap = cap; s->tr_every = every ? every : 1; }
+uint32_t sim_trace_get(Sim *s, uint64_t *out) { for (uint32_t i = 0; i < s->tr_n; i++) out[i] = s->tr[i]; uint32_t n = s->tr_n; s->tr_n = 0; return n; }
+void sim_io_write(Sim *s, uint32_t addr, uint8_t v) { io_write(s, addr & 0xFFFF, v); }   /* host-side register poke (no timing) */
+void sim_dma_stats(Sim *s, uint32_t *out, int reset) { for (int i = 0; i < 256; i++) { out[i] = s->dma_bytes[i]; out[256 + i] = s->dma_calls[i]; } if (reset) { memset(s->dma_bytes, 0, sizeof s->dma_bytes); memset(s->dma_calls, 0, sizeof s->dma_calls); } }
+int sim_step1(Sim *s) { return step(s); }
 void sim_set_joy(Sim *s, int pad, uint16_t v) { s->joy[pad & 3] = v; }
 void sim_skip_hook(Sim *s) { s->skip_hook = 1; }
 void sim_set_stop_pc(Sim *s, uint32_t pc) { s->stop_pc = pc; }
@@ -511,20 +639,21 @@ int sim_run(Sim *s, uint64_t max_instr, uint32_t max_frames) {
     int resume_hook = s->skip_hook; s->skip_hook = 0;
     for (;;) {
         if (s->stopped) return 4;
+        if (s->nmi_pending) { s->nmi_pending = 0; interrupt(s, 0xFFEA); resume_hook = 0; }   /* NMI left pending by the previous frame-end return */
         uint32_t pc24 = ((uint32_t)s->PB << 16) | s->PC;
         if (pc24 == s->stop_pc) return 1;
         if (!resume_hook) {
             uint32_t o;
             if (HOOKMAP && rom_off(pc24, &o) && HOOKMAP[o]) {
                 int h = HOOKMAP[o] - 1;
-                if (s->hook_kind[h] == 1) { s->PC = pull16(s) + 1; s->PB = pull8(s); continue; }
+                if (s->hook_kind[h] == 1) { if (s->hooklogn < 256) { s->hooklog[s->hooklogn][0] = s->frames; s->hooklog[s->hooklogn][1] = s->wram[0x1D00] | (s->wram[0x1D01] << 8) | (s->wram[0x1D02] << 16); s->hooklog[s->hooklogn][2] = s->frame_cyc; s->hooklogn++; } s->PC = pull16(s) + 1; s->PB = pull8(s); tick(s, s->hook_arg1[h]); continue; }
                 if (s->hook_kind[h] == 2) { s->PC = pull16(s) + 1; continue; }
                 if (s->hook_kind[h] == 3) {
                     /* spin-wait loop head: if the wait condition (WRAM[arg1] | WRAM[arg2]) holds, nothing can change until the next
                      * NMI, so jump the clock there instead of executing the spin.  The loop then runs its normal exit test. */
                     if ((s->wram[s->hook_arg1[h] & 0x1FFFF] | s->wram[s->hook_arg2[h] & 0x1FFFF]) && (s->nmitimen & 0x80)) {
                         uint32_t need = s->frame_cyc < VBLANK_CYC ? VBLANK_CYC - s->frame_cyc : FRAME_CYC - s->frame_cyc + VBLANK_CYC;
-                        s->frame_cyc += need; s->cyc_total += need;
+                        s->frame_cyc += need; s->cyc_total += need; resync_refresh(s);
                         goto after_step;
                     }
                     resume_hook = 1; continue;       /* condition false: run the loop's own exit test */
@@ -539,10 +668,13 @@ int sim_run(Sim *s, uint64_t max_instr, uint32_t max_frames) {
         if (s->waiting) {
             /* WAI: jump to the next vblank */
             uint32_t need = s->frame_cyc < VBLANK_CYC ? VBLANK_CYC - s->frame_cyc : FRAME_CYC - s->frame_cyc + VBLANK_CYC;
-            s->frame_cyc += need; s->cyc_total += need; s->waiting = 0;
+            s->frame_cyc += need; s->cyc_total += need; s->waiting = 0; resync_refresh(s);
         } else {
             uint32_t fc0 = s->frame_cyc;
+            uint64_t ct0 = s->cyc_total; uint8_t op0 = s->prof_on ? peek8(s, ((uint32_t)s->PB << 16) | s->PC) : 0;
             if (step(s) < 0) { s->PC--; return 5; }
+            if (s->prof_on) { s->pcyc[op0] += s->cyc_total - ct0; s->pcnt[op0]++; }
+            if (s->tr && (s->instr % s->tr_every) == 0 && s->tr_n < s->tr_cap) s->tr[s->tr_n++] = (s->cyc_total << 24) | ((uint32_t)s->PB << 16) | s->PC;
             n++;
             if (s->cyc_scale) {   /* crude model of what the interpreter does not charge (internal cycles, DRAM refresh) */
                 uint32_t x = (s->frame_cyc - fc0) * s->cyc_scale + s->cyc_rem;
@@ -551,15 +683,18 @@ int sim_run(Sim *s, uint64_t max_instr, uint32_t max_frames) {
         }
         frame_timing:
         /* frame timing */
-        if (s->frame_cyc >= FRAME_CYC) { s->frame_cyc -= FRAME_CYC; s->frames++; s->nmi_pending = 0; s->rdnmi = 0; s->in_nmi_unused = 0; }
+        if (s->exact) {   /* DRAM refresh: the CPU is stalled for 40 master cycles at H=538 of every scanline */
+            sync_lines(s, 1);
+        }
+        if (s->frame_cyc >= FRAME_CYC) { s->frame_cyc -= FRAME_CYC; s->nmi_pending = 0; s->rdnmi = 0; s->in_nmi_unused = 0; s->refresh_line = 0; if (s->exact) { hdma_frame_init(s); sync_lines(s, 1); } }
         if (!s->in_nmi_unused && s->frame_cyc >= VBLANK_CYC) {
-            s->in_nmi_unused = 1; s->rdnmi = 1;
+            s->in_nmi_unused = 1; s->rdnmi = 1; s->frames++;      /* a frame ends where vblank starts, like the libretro core's retro_run */
             if (s->nmitimen & 0x80) s->nmi_pending = 1;
         }
+        if (max_frames && s->frames - f0 >= max_frames) return 3;     /* frame ends at vblank, before the NMI is taken */
         if (s->nmi_pending) {
             s->nmi_pending = 0;
             interrupt(s, 0xFFEA);
         }
-        if (max_frames && s->frames - f0 >= max_frames) return 3;
     }
 }
