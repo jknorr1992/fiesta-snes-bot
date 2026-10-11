@@ -34,7 +34,7 @@ class State:
         for k in State.__slots__:
             v = getattr(self, k, None)
             if k in ("vtab",): v = [list(a) for a in v]
-            elif k in ("mods", "npcpos", "npcvis", "mods2", "npcface"): v = dict(v)
+            elif k in ("mods", "npcpos", "npcvis", "mods2", "npcface"): v = dict(v or {})
             elif k == "log": v = list(v)
             setattr(s, k, v)
         return s

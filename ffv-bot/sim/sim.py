@@ -458,6 +458,8 @@ class Sim:
     def execute(self, s, act):
         """apply an action's event (if any) and arrival processing -> list of states"""
         tgt, stepped = act.target
+        if act.path and tgt.flags >> 508 & 3:                # every party step clears the temporary event flags 508/509 ($c0c796 at StartMove/step)
+            tgt = State.clone(tgt); tgt.flags &= ~(3 << 508); act = Action(act.kind, act.desc, act.cost, (tgt, stepped), act.face, act.event)
         if act.kind in ("press", "talk", "turn"):
             return self._run_after(tgt, act.event, 0) if act.event else [tgt]
         if act.kind == "land":
