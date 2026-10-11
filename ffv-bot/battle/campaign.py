@@ -29,7 +29,8 @@ from multiprocessing import Pool
 from data import GameData
 from field import Field, Character, FIELD_CHAR, CHAR_SIZE, RNG_SEED, FIELD_ITEMS, FIELD_QTY
 from party import Catalog, _norm
-from policy import SmartPolicy
+from policy import SmartPolicy, FleePolicy
+from sim import L, R, Command
 
 TENT = "Tent"
 STEPS_BETWEEN = {"normal": 24, "low": 48, "high": 12, "very high": 6}
@@ -46,20 +47,22 @@ def _init(rom_path):
 
 def _run(job):
     from scenario import run_battle
-    wram, enc, bg, seed = job
+    wram, enc, bg, seed, mode = job
     d = _W["data"]
     w = bytearray(wram); w[RNG_SEED] = seed & 0xFF
     pol = SmartPolicy(d)
     for attempt in range(4):             # a rare sim deadlock (direct command raced a status change) is retried on the next seed; counted in `stalls`
         w[RNG_SEED] = (seed + attempt) & 0xFF
-        pol = SmartPolicy(d)
+        pol = FleePolicy() if mode == "flee" else SmartPolicy(d)
+        _W["sim"].hold = (L | R) if mode == "flee" else 0           # running away = holding L+R
         r = run_battle(bytes(w), enc, bg, policy=pol, max_frames=40000, sim=_W["sim"], keep_wram=True)
+        _W["sim"].hold = 0
         if not r.crash.startswith("sim stall"): break
     stalls = attempt
     dead_end = any(c.hp == 0 or (c.status1 & 0xC0) for c in r.party_after if c.in_party)
-    flawless = r.outcome == "victory" and not pol.died and not dead_end
+    flawless = r.outcome == ("escaped" if mode == "flee" else "victory") and not pol.died and not dead_end
     return dict(outcome=r.outcome, flawless=flawless, frames=r.frames, gil=r.gil_gained, exp=r.exp_gained, items=r.items_won,
-                stalls=stalls, wram=r.wram if r.outcome == "victory" else b"")
+                stalls=stalls, wram=r.wram if r.outcome in ("victory", "escaped") else b"")
 
 # ------------------------------------------------------------------ gear / shops
 class Shops:
@@ -321,53 +324,76 @@ class Campaign:
         self.jobs_unlocked = True
         self.say("jobs assigned: " + ", ".join(f"{n} {self.jobs[n]}" for n in SLOT_NAMES))
 
-    def heal(self, why):
-        if self.state.gil < self.shops.tent_price: return False
-        self.state.gil = self.state.gil - self.shops.tent_price
+    def heal(self, why, price=None):
+        price = self.shops.tent_price if price is None else price
+        if self.state.gil < price: return False
+        self.state.gil = self.state.gil - price
         for i in range(4):
             ch = self.state.character(i)
             if ch.in_party: ch.hp = ch.max_hp; ch.mp = ch.max_mp; ch.status1 &= 0xC0; self.state.set_character(i, ch)
         self.tents += 1
         return True
 
+    def inn_price(self, st):
+        """Cheapest inn of the town this stage is in (None = no inn: a Tent is used)."""
+        if "inn_by_stage" not in self.__dict__:
+            areas = json.load(open(self.a.areas)); inns = json.load(open(self.a.shops)).get("inns", {})
+            def label(m):
+                for k in range(m, max(m - 25, 10), -1):
+                    t = areas.get(str(k))
+                    if t and not any(x in t for x in SUBS): return t
+            self.inn_by_stage = {}
+            for m, p in inns.items():
+                l = label(int(m)); self.inn_by_stage[l] = min(p, self.inn_by_stage.get(l, 10**9))
+        return self.inn_by_stage.get(st["name"]) if st["kind"] == "local" else None
+
     def hp_fraction(self):
         fr = [c.hp / max(1, c.max_hp) for c in (self.state.character(i) for i in range(4)) if c.in_party]
         return min(fr)
 
     # ---- fights
-    def batch(self, enc, bg, runs):
+    def batch(self, enc, bg, runs, mode="fight"):
         w = self.state.to_wram()
         seeds = [(k * 97 + (enc * 31)) % 256 for k in range(runs)]
-        return self.pool.map(_run, [(w, enc, bg, s) for s in seeds], chunksize=2)
+        return self.pool.map(_run, [(w, enc, bg, s, mode) for s in seeds], chunksize=2)
 
-    def fight(self, enc, bg, label, runs):
-        """One fight as a batch.  Returns (counted, summary).  Advances self.state to the batch's average result when it counts."""
+    def adopt(self, runs):
+        """The batch's average result becomes the party state: the run whose exp is closest to the mean, HP/MP the mean, gil start + mean."""
+        mean_exp = sum(sum(r["exp"]) for r in runs) / len(runs)
+        rep = min(runs, key=lambda r: abs(sum(r["exp"]) - mean_exp))
+        f = Field.from_wram(rep["wram"], self.d)
+        for i in range(4):
+            ch = f.character(i)
+            if not ch.in_party: continue
+            hps = []; mps = []
+            for r in runs:
+                c = Character(r["wram"][FIELD_CHAR + CHAR_SIZE * i:FIELD_CHAR + CHAR_SIZE * (i + 1)])
+                hps.append(c.hp); mps.append(c.mp)
+            ch.hp = min(ch.max_hp, max(1, round(sum(hps) / len(hps)))); ch.mp = min(ch.max_mp, round(sum(mps) / len(mps)))
+            f.set_character(i, ch)
+        f.gil = self.state.gil + round(sum(r["gil"] for r in runs) / len(runs))
+        self.state = f
+        return round(mean_exp)
+
+    def fight(self, enc, bg, label, runs, scripted=False):
+        """One fight as a batch.  Returns (counted, summary).  Advances self.state to the batch's average result when it counts.
+        A random fight that cannot be won flawlessly may be run away from (hold L+R) if that works 95% of the time without a death."""
         res = self.batch(enc, bg, runs)
         self.fights_run += 1
         flawless = [r for r in res if r["flawless"]]
         rate = len(flawless) / len(res)
         name = self.d.battle_summary(enc).split(": ", 1)[-1]
         info = dict(battle=enc, name=name, rate=round(rate, 3), map=str(label))
-        if rate < self.a.flawless:
-            return False, info
-        # average result
-        mean_exp = sum(sum(r["exp"]) for r in flawless) / len(flawless)
-        rep = min(flawless, key=lambda r: abs(sum(r["exp"]) - mean_exp))
-        f = Field.from_wram(rep["wram"], self.d)
-        start = self.state
-        for i in range(4):
-            ch = f.character(i)
-            if not ch.in_party: continue
-            hps = []; mps = []
-            for r in flawless:
-                c = Character(r["wram"][FIELD_CHAR + CHAR_SIZE * i:FIELD_CHAR + CHAR_SIZE * (i + 1)])
-                hps.append(c.hp); mps.append(c.mp)
-            ch.hp = min(ch.max_hp, max(1, round(sum(hps) / len(hps)))); ch.mp = min(ch.max_mp, round(sum(mps) / len(mps)))
-            f.set_character(i, ch)
-        f.gil = start.gil + round(sum(r["gil"] for r in flawless) / len(flawless))
-        self.state = f
-        info["exp"] = round(mean_exp)
-        return True, info
+        if rate >= self.a.flawless:
+            info["exp"] = self.adopt(flawless); return True, info
+        b = self.d.battle(enc)
+        if not scripted and not b["no_run"] and not b["boss"] and self.a.flee:
+            fl = self.batch(enc, bg, runs, "flee"); self.fights_run += 1
+            ok = [r for r in fl if r["flawless"]]
+            info["flee_rate"] = round(len(ok) / len(fl), 3)
+            if len(ok) / len(fl) >= self.a.flawless:
+                info["exp"] = self.adopt(ok); info["fled"] = True; return True, info
+        return False, info
 
     def run_pass(self, stage, offset, who):
         """One pass over a stage's fights.  Returns (ok, failed_fight_info)."""
@@ -376,7 +402,7 @@ class Campaign:
         for k, (enc, bg, label, scripted) in enumerate(fights):
             if stage["kind"] == "world" and self.hp_fraction() < 0.6 and self.heal("world"): pass
             if stage["dungeon"] and k == mid and k > 0 and self.hp_fraction() < 0.8 and self.heal("save point"): pass
-            ok, info = self.fight(enc, bg, label, 2 * self.a.runs if scripted else self.a.runs)
+            ok, info = self.fight(enc, bg, label, 2 * self.a.runs if scripted else self.a.runs, scripted)
             self.fight_log.append(dict(stage=stage["name"], **info, counted=ok))
             if not ok:
                 open(os.path.join(self.a.out, f"fail_{enc}_{self.fights_run}.bin"), "wb").write(self.state.to_wram())
@@ -436,6 +462,11 @@ class Campaign:
     def run(self):
         self.tents = 0; report = []
         idx = 0; passes_at = {}
+        sj = os.path.join(self.a.out, "state.json")
+        if self.a.resume and os.path.exists(sj):
+            j = json.load(open(sj)); idx = j["stage"] + 1; self.jobs_unlocked = j["jobs_unlocked"]; self.faris_in = j["faris_in"]; self.tents = j["tents"]
+            self.state = Field.from_wram(open(os.path.join(self.a.out, "state.bin"), "rb").read(), self.d)
+            self.say(f"resumed after stage {idx - 1} | {self.summary_line()}")
         while idx < len(self.stages):
             st = self.stages[idx]
             label = st["name"] if st["kind"] == "local" else "world map " + ",".join(f"{w}:{bx},{by}" for (w, bx, by) in st["world"])
@@ -459,7 +490,7 @@ class Campaign:
                 gi = max(0, idx - 1)
                 self.grind(gi, before)
                 self.go_shopping(idx)
-            self.heal("end of region")
+            self.heal("end of region", self.inn_price(st))
             self.go_shopping(idx)
             if st["name"] == "West Valley" and not self.faris_in: self.add_faris()
             if st["name"] == "Wind Crystal" and not self.jobs_unlocked: self.unlock_jobs(); self.go_shopping(idx)
@@ -474,7 +505,7 @@ class Campaign:
         st = self.stages[gi]; n = 0
         while True:
             n += 1
-            self.heal("grind")
+            self.heal("grind", self.inn_price(st))
             ok, info = self.run_pass(st, 1000 + n, st["name"])
             boosted = all(a > b for a, b in zip(self.party_power(), before)) if len(self.party_power()) == len(before) else True
             self.say(f"   grind pass {n} in {st['name']}: {'ok' if ok else 'a fight failed: ' + info['name']} | {self.summary_line()} | boost {boosted}")
@@ -503,6 +534,8 @@ def main():
     ap.add_argument("--reached", default=os.path.join(ROOT, "data", "reached_regions.json"))
     ap.add_argument("--areas", default=os.path.join(ROOT, "data", "map_areas.json"))
     ap.add_argument("--shops", default=os.path.join(ROOT, "data", "shops_by_map.json"))
+    ap.add_argument("--no-flee", dest="flee", action="store_false", help="never run away from a random fight that cannot be won flawlessly")
+    ap.add_argument("--resume", action="store_true", help="continue from state.bin/state.json in --out (saved after every finished stage)")
     ap.add_argument("--list-stages", action="store_true", help="print the stages and their fights, then exit")
     ap.add_argument("--jobs-spec", help='JSON like {"Bartz": "Knight", "Lenna": "WhiteMage", "Galuf": "Monk", "Faris": "BlackMage"}')
     a = ap.parse_args()

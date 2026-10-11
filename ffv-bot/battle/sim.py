@@ -102,6 +102,7 @@ class BattleSim:
         self._open_hook = -1
         self.direct = None         # callable(sim, char) -> Command | None: bypass the real menu (see set_direct)
         self._close_menu = False; self._reset_cd42 = False; self._enforce = None
+        self.hold = 0               # buttons held every frame when no tap is queued (e.g. L|R to run away)
         self.log = []
 
     def _hooks(self):
@@ -237,7 +238,7 @@ class BattleSim:
                 if n <= 1: self.pad_queue.pop(0)
                 else: self.pad_queue[0] = (b, n - 1)
             else:
-                self.m.joy(0, 0)
+                self.m.joy(0, self.hold)
             self._run(1); self.frame += 1
 
     def press(self, buttons, hold=3, release=3):

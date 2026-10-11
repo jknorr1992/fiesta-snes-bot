@@ -65,3 +65,12 @@ class SmartPolicy:
             if cost is not None and cost <= me.mp and living_mon:
                 return Command(MAGIC_COMMAND, 0x20, Command.monster_mask(target), 0, sp)
         return Command.fight(target)
+
+
+class FleePolicy:
+    """Run away: the real game flees while L+R are held (the caller holds them); a ready character just guards."""
+    mode = "direct"
+    def __init__(self): self.died = False
+    def __call__(self, sim, char):
+        if any(c.dead for c in sim.party): self.died = True
+        return Command.guard()

@@ -36,6 +36,7 @@ def main():
         seen.add(ev); out = []
         for c in E.cmds(ev):
             if c.op == 0xA1: out.append(c.b[1])
+            elif c.op == 0xAD: out.append(1000 + c.b[1])          # inn: price index (shop numbers >= 1000)
             elif c.op == 0xCD: out += shops_in(c.b[1] | c.b[2] << 8, seen)
         return out
     table = shop_table(rom); res = {}
@@ -49,6 +50,11 @@ def main():
         except Exception:
             continue
         if found: res[m] = sorted(found)
+    INN_PRICE = 0xBC41                      # C0:BC41, 8 words
+    inns = {str(m): min(int.from_bytes(rom[INN_PRICE + 2 * (s - 1000):INN_PRICE + 2 * (s - 1000) + 2], "little") for s in v if s >= 1000)
+            for m, v in res.items() if any(s >= 1000 for s in v)}
+    res = {m: [s for s in v if s < 1000] for m, v in res.items()}
+    res = {m: v for m, v in res.items() if v}
     shops = {}
     for s in sorted({s for v in res.values() for s in v}):
         t = table.get(s)
@@ -56,7 +62,7 @@ def main():
         if t["type"] == 0: stock = [dict(id=i, name=d.spell_name(i), price=price(rom, MAGIC_PRICE, i)) for i in t["stock"]]
         else: stock = [dict(id=i, name=d.item_name(i), price=price(rom, ITEM_PRICE, i)) for i in t["stock"]]
         shops[s] = dict(type=t["type"], stock=stock)
-    json.dump(dict(maps={str(k): v for k, v in res.items()}, shops={str(k): v for k, v in shops.items()}), open(a.out, "w"), indent=1)
+    json.dump(dict(inns=inns, maps={str(k): v for k, v in res.items()}, shops={str(k): v for k, v in shops.items()}), open(a.out, "w"), indent=1)
     print(len(res), "maps with shops,", len(shops), "shops ->", a.out)
 
 if __name__ == "__main__": main()
