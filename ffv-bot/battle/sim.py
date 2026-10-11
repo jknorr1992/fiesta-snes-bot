@@ -168,6 +168,7 @@ class BattleSim:
         if background is not None: self.wb(TERRAIN, background)
         m.setreg(cpu.R_S, 0x1FFF); m.setreg(cpu.R_P, 0x24); m.setreg(cpu.R_D, 0); m.setreg(cpu.R_DB, 0x7E)
         m.setreg(cpu.R_E, 0)
+        if not self.spc: m.reset_hw()          # same hardware phase as a fresh sim, so a reused BattleSim reproduces fresh-sim results frame for frame
         m.joy(0, 0); self.pad_queue = []; self._close_menu = False
         m.call_long(EXEC_BATTLE, SENTINEL)
         self.running = True; self.frame = 0

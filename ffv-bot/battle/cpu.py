@@ -32,6 +32,7 @@ L.sim_spc_info.argtypes = [vp, ctypes.POINTER(u32)]
 L.sim_prof.argtypes = [vp, ctypes.c_int, ctypes.POINTER(u64)]
 L.sim_trace.argtypes = [vp, u32, u32]; L.sim_trace_get.restype = u32; L.sim_trace_get.argtypes = [vp, ctypes.POINTER(u64)]
 L.sim_io_write.argtypes = [vp, u32, ctypes.c_uint8]
+L.sim_reset_hw.argtypes = [vp]
 L.sim_dma_stats.argtypes = [vp, ctypes.POINTER(u32), ctypes.c_int]
 L.sim_spc_load.argtypes = [vp, ctypes.c_char_p, ctypes.c_char_p, ctypes.POINTER(u32)]
 
@@ -67,6 +68,7 @@ class Machine:
     def trace_get(self):
         buf = (u64 * self._trcap)(); n = L.sim_trace_get(self.p, buf); return [(buf[i] >> 24, buf[i] & 0xFFFFFF) for i in range(n)]
     def io_write(self, addr, v): L.sim_io_write(self.p, addr, v & 0xFF)
+    def reset_hw(self): L.sim_reset_hw(self.p)
     def dma_stats(self, reset=1):
         o = (u32 * 512)(); L.sim_dma_stats(self.p, o, reset); return {i: (o[256 + i], o[i]) for i in range(256) if o[256 + i]}   # breg -> (calls, bytes)
     def clone(self): return Machine(L.sim_clone(self.p))

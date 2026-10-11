@@ -1,14 +1,12 @@
 {
- "note": "Sweep of all 511 non-empty battles on 'Final Fantasy 5 (Japan) (patched)(2).sfc' with a level-1 party: no crashes. 'timeout' = level-1 party cannot win within 20000 frames.",
+ "note": "Sweep of all 511 non-empty battles on 'Final Fantasy 5 (Japan) (patched)(2).sfc' with a level-1 party, exact-timing model: no crashes. 'timeout' = level-1 party cannot win within 20000 frames.",
  "crash": [],
  "timeout": [
   209,
   366,
-  382,
   417,
   433,
   484,
-  494,
   503,
   510,
   511

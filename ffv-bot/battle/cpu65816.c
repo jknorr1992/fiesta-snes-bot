@@ -567,6 +567,16 @@ static int step(Sim *s) {
 /* ------------------------------------------------------------- host API */
 Sim *sim_new(void) { Sim *s = calloc(1, sizeof(Sim)); s->stop_pc = 0xFFFFFFFFu; s->fE = 0; s->fM = 1; s->fX = 1; s->fI = 1; return s; }
 void sim_free(Sim *s) { free(s); }
+/* power-on state of the timing-relevant hardware (frame phase, refresh, HDMA, DMA, interrupt flags, arithmetic unit) so that a reused Sim
+   starts every battle exactly as a fresh one would; WRAM, hooks, ROM, the SPC700 and statistics are left alone */
+void sim_reset_hw(Sim *s) {
+    s->frame_cyc = 0; s->cyc_rem = 0; s->refresh_line = 0; s->xcross = 0; s->nb = 0;
+    s->memsel = 0; s->hdma_en = 0; memset(s->hdma_on, 0, sizeof s->hdma_on); memset(s->hdma_lc, 0, sizeof s->hdma_lc);
+    memset(s->hdma_rep, 0, sizeof s->hdma_rep); memset(s->hdma_xfer, 0, sizeof s->hdma_xfer); memset(s->hdma_a2a, 0, sizeof s->hdma_a2a); memset(s->hdma_ind, 0, sizeof s->hdma_ind);
+    s->hv_flip = 0; s->hv_h = s->hv_v = 0; s->nmitimen = 0; s->rdnmi = 0; s->in_nmi_unused = 0; s->stopped = 0; s->waiting = 0; s->nmi_pending = 0;
+    s->wmadd = 0; s->wrmpy_res = s->wrdiv_q = s->wrdiv_r = s->dividend = 0; s->wrmpya = 0; memset(s->joy, 0, sizeof s->joy);
+    memset(s->apu_port, 0, sizeof s->apu_port); memset(s->apu_in, 0, sizeof s->apu_in); memset(s->dma, 0, sizeof s->dma);
+}
 void sim_copy(Sim *dst, const Sim *src) { memcpy(dst, src, sizeof(Sim)); }
 Sim *sim_clone(const Sim *src) { Sim *s = malloc(sizeof(Sim)); memcpy(s, src, sizeof(Sim)); s->tr = 0; return s; }
 size_t sim_size(void) { return sizeof(Sim); }
