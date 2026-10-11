@@ -18,7 +18,7 @@ python3 battle/run.py map 166                # random battles of a map (with pro
 python3 battle/run.py world 3                # random battles of a world-map region
 python3 battle/run.py fight 5                # fight it with a fresh 4-member party
 python3 battle/run.py fight 0x5d --state s.state4   # ...with the party, gear and items from a RetroArch save state
-python3 battle/run.py sweep --fix            # run all battles, list crashes
+python3 battle/run.py sweep                  # run all battles, list crashes
 ```
 
 ```python
@@ -62,12 +62,11 @@ snap = sim.snapshot(); ...; sim.restore(snap)
 `ROM[0x24C75]` is `0xA9`, should be `0xE8` (INX) in the blue-magic "learn" loop. As shipped the code runs
 `LDA #$E0 / PHP / BRK` and the BRK vector `$0000` executes RAM as code. All four map-166 (Ancient Library) battles hit
 it, and any battle with a monster that casts blue magic. The simulator reports `outcome == "crash"` for these.
-`fix_rom.py in.sfc [out.sfc]` writes a corrected copy (never edits the original); `run.py sweep --fix` and
-`fix_rom.fixed(bytes)` apply it in memory. This is the same crash the live emulator shows.
+This is a diagnosis only: **the ROM is never modified** (project rule), so the bot must avoid or otherwise handle these battles.
 
-Sweep (`run.py sweep --fix`, level-1 party, ~3 min): with the fix none of the 511 non-empty battles crashes. Eight
+Sweep (`run.py sweep`, level-1 party, ~3 min), run once on a copy with that byte corrected to find every affected battle: with the byte corrected none of the 511 non-empty battles crashed. Eight
 time out at 20000 frames only because a level-1 party cannot beat them (0xd1 MiniMage x6, 0x16e/0x1a1/0x1b1/0x1e4,
-bosses 0x1f7 Exdeath, 0x1fe, 0x1ff); without the fix the blue-magic battles crash.
+bosses 0x1f7 Exdeath, 0x1fe, 0x1ff). On the real ROM the blue-magic battles crash.
 
 ## Files
 

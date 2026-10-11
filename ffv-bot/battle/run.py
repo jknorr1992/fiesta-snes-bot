@@ -5,7 +5,7 @@
   run.py map 166                        random battles of a local map
   run.py world 3                        random battles of a world-map region
   run.py fight 0x1d [--state S.state4]  simulate it: new 4-member party, or the party/items of a RetroArch save state
-  run.py sweep [--fix]                  run every battle 0-511 and report crashes (--fix applies fix_rom.py first)
+  run.py sweep                          run every battle 0-511 and report crashes
 """
 import argparse, os, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -23,11 +23,9 @@ def main(argv=None):
     for n in ("battle", "map", "world"): sub.add_parser(n).add_argument("id", type=num)
     f = sub.add_parser("fight"); f.add_argument("id", type=num); f.add_argument("--state"); f.add_argument("--party", type=int, default=4)
     f.add_argument("--background", type=num, default=0); f.add_argument("--frames", type=int, default=60000)
-    s = sub.add_parser("sweep"); s.add_argument("--fix", action="store_true"); s.add_argument("--first", type=num, default=0); s.add_argument("--last", type=num, default=511)
+    s = sub.add_parser("sweep"); s.add_argument("--first", type=num, default=0); s.add_argument("--last", type=num, default=511)
     a = ap.parse_args(argv)
     rom = open(a.rom, "rb").read()
-    if a.cmd == "sweep" and a.fix:
-        import fix_rom; rom = fix_rom.fixed(rom)
     d = GameData(rom)
     if a.cmd == "battle": print(d.battle_summary(a.id), d.battle(a.id)["raw"])
     elif a.cmd in ("map", "world"):
