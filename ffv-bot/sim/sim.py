@@ -275,33 +275,37 @@ class Sim:
         lm = self.localmap(s)
         acts = []
         start = (s.x, s.y, s.z)
-        dist = {start: 0}; par = {start: None}
-        heap = [(0, 0, start)]; n = 0; done = set()
         ents = self.ent_at(s.map)
-        terminal = {}
-        while heap:
-            dc, _, cur = heapq.heappop(heap)
-            if cur in done: continue
-            done.add(cur)
-            for d, nxt in lm.moves(*cur):
-                nx, ny, nz = nxt
-                if (nx, ny, d) in terminal: continue
-                step = 1 + (DMG_COST if lm.props(nx, ny)[0] & 0x20 else 0)      # damage floor (poison/tile damage): walk around it when a detour is cheaper
-                kind = self._arrival_kind(s, s.map, nx, ny, d)
-                e = ents.get((nx, ny))
-                if kind or e is not None or lm.is_exit(nx, ny):
-                    terminal[(nx, ny, d)] = (cur, kind, e)
-                    dist.setdefault(("T", nx, ny, d), dc + step)
-                    continue
-                if nxt in done or dist.get(nxt, 1 << 30) <= dc + step: continue
-                dist[nxt] = dc + step; par[nxt] = (cur, d); n += 1; heapq.heappush(heap, (dc + step, n, nxt))
+        f = self._local_flood(lm, start, s.map)
+        dist = f[0]; par = f[1]; own = False                    # the cached flood is shared: copied only when a plain-floor trigger tile extends it
+        terminal = {}; tcost = {}
+        work = []; wn = 0
+        for it in f[2]: wn += 1; heapq.heappush(work, (dist[it[0]] + it[3], wn, it))
+        while work:
+            _, _, (cur, d, nxt, step) = heapq.heappop(work)          # cheapest arrival first, like one Dijkstra over the whole map
+            nx, ny, nz = nxt
+            key = (nx, ny, d)
+            if key in terminal: continue
+            kind = self._arrival_kind(s, s.map, nx, ny, d)
+            e = ents.get((nx, ny))
+            c = dist[cur] + step
+            if kind or e is not None or lm.is_exit(nx, ny):
+                terminal[key] = (cur, kind, e); tcost[key] = c
+                continue
+            if nxt in dist and dist[nxt] <= c: continue
+            if not own: dist = dict(dist); par = dict(par); own = True
+            dist[nxt] = c; par[nxt] = (cur, d)          # a trigger tile that does not fire now is plain floor: go on through it
+            f2 = self._local_flood(lm, nxt, s.map)
+            for node, dd in f2[0].items():
+                if node != nxt and c + dd < dist.get(node, 1 << 30): dist[node] = c + dd; par[node] = f2[1][node]
+            for it in f2[2]: wn += 1; heapq.heappush(work, (dist[it[0]] + it[3], wn, it))
         # terminal tiles: walking onto them fires something
         for (nx, ny, d), (cur, kind, e) in terminal.items():
             tgt = State.clone(s); tgt.x, tgt.y, tgt.face = nx, ny, FACE_OF_DIR[d]
             tgt.z = lm.z_after(lm.props(nx, ny)[0], cur[2])
             what = kind[0] if kind else ("entrance" if e is not None else "exit")
             desc = "walk to (%d,%d) on map %d: %s %s" % (nx, ny, s.map, what, kind[1] if kind else (("-> map %d" % e["map"]) if e is not None else ""))
-            acts.append(Action("walk" + what, desc, dist["T", nx, ny, d], (tgt, True), face=d, event=kind[1] if kind else None))
+            acts.append(Action("walk" + what, desc, tcost[(nx, ny, d)], (tgt, True), face=d, event=kind[1] if kind else None))
             acts[-1].path = self._backtrack(par, cur) + [d]
         # interactions from plain tiles
         objs = self.objects(s)
@@ -351,6 +355,38 @@ class Sim:
                         acts[-1].path = []
         return acts
 
+    def _barriers(self, m):
+        """tiles of local map m where walking onto them can fire something (event triggers, entrances)"""
+        cache = self.__dict__.setdefault("_barrier_cache", {})
+        b = cache.get(m)
+        if b is None: b = cache[m] = frozenset(self.trig_at(m)) | frozenset(self.ent_at(m))
+        return b
+
+    def _local_flood(self, lm, start, m):
+        """cached on the LocalMap: cheapest costs to every standing state (x, y, z) reachable from `start` without stepping on a tile
+        that can fire something (those arrivals are returned for the per-state flag check): (dist, par, arrivals)"""
+        fl = lm.__dict__.setdefault("_fl", {})
+        r = fl.get(start)
+        if r is not None: return r
+        bar = self._barriers(m)
+        dist = {start: 0}; par = {start: None}; done = set(); arr = []; seen = set()
+        heap = [(0, 0, start)]; n = 0
+        while heap:
+            dc, _, cur = heapq.heappop(heap)
+            if cur in done: continue
+            done.add(cur)
+            for d, nxt in lm.moves(*cur):
+                nx, ny, nz = nxt
+                step = 1 + (DMG_COST if lm.props(nx, ny)[0] & 0x20 else 0)      # damage floor (poison/tile damage): walk around it when a detour is cheaper
+                if (nx, ny) in bar or lm.is_exit(nx, ny):
+                    if (nx, ny, d) not in seen: seen.add((nx, ny, d)); arr.append((cur, d, nxt, step))
+                    continue
+                if nxt in done or dist.get(nxt, 1 << 30) <= dc + step: continue
+                dist[nxt] = dc + step; par[nxt] = (cur, d); n += 1; heapq.heappush(heap, (dc + step, n, nxt))
+        if len(fl) > 300: fl.clear()
+        r = fl[start] = (dist, par, arr)
+        return r
+
     def _can_face(self, lm, node, par, face, s):
         """can the party stand on `node` facing `face`? (turn by bumping into a blocked neighbour, or arrive moving that way)"""
         x, y, z = node
@@ -397,25 +433,26 @@ class Sim:
             if not v[1] & 0x80 and (v[0] >> 5) == w and (v[0] & 0x1C) >> 2 in (4, 5): vehicle_tiles[(v[2], v[3])] = i
         acts = []
         start = (s.x, s.y)
-        dist = {start: 0}; par = {start: None}
-        q = collections.deque([start])
+        f = self._world_flood(w, vt, mk, frozenset(vehicle_tiles) if vt == 0 else frozenset(), start)
+        dist = f[0]; par = f[1]; own = False
         terminal = {}
-        while q:
-            cur = q.popleft()
-            for d in (1, 2, 3, 4):
-                dx, dy = WDIRS[d]
-                npos = ((cur[0] + dx) & 255, (cur[1] + dy) & 255)
-                r = self.W.step(w, vt, cur[0], cur[1], d, mk, npos in vehicle_tiles and vt == 0)
-                if r is None: continue
-                if r[2]:      # disembark from ship/submarine onto land
-                    terminal[(npos, d)] = (cur, ("disembark", None))
-                    continue
-                if npos in dist or (npos, d) in terminal: continue
-                kind = self._world_arrival_kind(s, vt, npos[0], npos[1], d, vehicle_tiles)
-                if kind:
-                    terminal[(npos, d)] = (cur, kind)
-                    continue
-                dist[npos] = dist[cur] + 1; par[npos] = (cur, d); q.append(npos)
+        work = []; wn = 0
+        for it in f[2]: wn += 1; heapq.heappush(work, (dist[it[0]], wn, it))
+        while work:
+            _, _, (cur, d, npos, dis) = heapq.heappop(work)
+            if (npos, d) in terminal or npos in dist: continue
+            if dis:       # disembark from ship/submarine onto land
+                terminal[(npos, d)] = (cur, ("disembark", None)); continue
+            kind = self._world_arrival_kind(s, vt, npos[0], npos[1], d, vehicle_tiles)
+            if kind:
+                terminal[(npos, d)] = (cur, kind); continue
+            c = dist[cur] + 1                                   # a trigger tile that does not fire now is plain ground: go on through it
+            if not own: dist = dict(dist); par = dict(par); own = True
+            dist[npos] = c; par[npos] = (cur, d)
+            f2 = self._world_flood(w, vt, mk, frozenset(vehicle_tiles) if vt == 0 else frozenset(), npos)
+            for node, dd in f2[0].items():
+                if node != npos and c + dd < dist.get(node, 1 << 30): dist[node] = c + dd; par[node] = f2[1][node]
+            for it in f2[2]: wn += 1; heapq.heappush(work, (dist[it[0]], wn, it))
         if vt in (4, 5) or s.veh:     # keep the cheapest disembark per connected piece of land (ship stays at that dock)
             comp = self._foot_comp(w, mk); best = {}
             hot = self._hot_comps(s, w, comp)
@@ -464,6 +501,45 @@ class Sim:
                     acts.append(Action("boardA", "board vehicle %d at (%d,%d)" % (i + 1, v[2], v[3]), dist[(v[2], v[3])] + 1, (tgt, False)))
                     acts[-1].path = self._backtrack(par, (v[2], v[3]))
         return acts
+
+    def _world_barriers(self, w):
+        cache = self.__dict__.setdefault("_wbarrier_cache", {})
+        b = cache.get(w)
+        if b is None:
+            b = set(self.trig_at(w)) | set(self.ent_at(w))
+            for m, vtest, (x0, x1), (y0, y1), ts in WORLD_HOOKS:
+                if m == w: b |= {(x, y) for x in range(x0, x1 + 1) for y in range(y0, y1 + 1)}
+            b = cache[w] = frozenset(b)
+        return b
+
+    def _world_flood(self, w, vt, mk, vtiles, start):
+        """cached: reachable world tiles from `start` for vehicle type vt without stepping on a tile that can fire something or leaving
+        a ship onto land: (dist, par, arrivals (cur, d, npos, disembark))"""
+        cache = self.__dict__.setdefault("_wflood_cache", {})
+        key = (w, vt, mk, vtiles, start)
+        r = cache.get(key)
+        if r is not None: return r
+        bar = self._world_barriers(w)
+        dist = {start: 0}; par = {start: None}; arr = []; seen = set()
+        q = collections.deque([start])
+        while q:
+            cur = q.popleft()
+            for d in (1, 2, 3, 4):
+                dx, dy = WDIRS[d]
+                npos = ((cur[0] + dx) & 255, (cur[1] + dy) & 255)
+                r2 = self.W.step(w, vt, cur[0], cur[1], d, mk, npos in vtiles and vt == 0)
+                if r2 is None: continue
+                if r2[2]:
+                    if (npos, d) not in seen: seen.add((npos, d)); arr.append((cur, d, npos, True))
+                    continue
+                if npos in dist: continue
+                if npos in bar or npos in vtiles:
+                    if (npos, d) not in seen: seen.add((npos, d)); arr.append((cur, d, npos, False))
+                    continue
+                dist[npos] = dist[cur] + 1; par[npos] = (cur, d); q.append(npos)
+        if len(cache) > 60: cache.clear()
+        r = cache[key] = (dist, par, arr)
+        return r
 
     def _hot_comps(self, s, w, comp):
         hot = set(comp[y * 256 + x] for (x, y) in list(self.ent_at(w)) + list(self.trig_at(w)) + [(v[2], v[3]) for v in s.vtab if (v[0] >> 5) == w])
