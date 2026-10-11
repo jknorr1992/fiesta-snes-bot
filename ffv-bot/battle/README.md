@@ -8,7 +8,7 @@ HiROM mapping, 128K WRAM, the multiply/divide unit, joypads, NMI/vblank timing, 
 graphics DMA are dropped (sound calls are skipped), so it runs at max speed: a whole small battle takes ~0.25 s,
 the idle waits between frames are skipped to the next NMI.
 
-ROM: always `/mnt/project-files/FFV/Final Fantasy V (Japan) (patched)(1).sfc` (`sim.DEFAULT_ROM`).
+ROM: `/mnt/project-files/FFV/Final Fantasy 5 (Japan) (patched)(2).sfc` (`sim.DEFAULT_ROM`, override with `FFV_ROM` or `--rom`).
 
 ## Quick start
 
@@ -51,25 +51,21 @@ snap = sim.snapshot(); ...; sim.restore(snap)
   use that when menu timing itself matters. The two can differ by a few frames.
 * **Validated against real snes9x** (`validate/diff_battle.py`, uses the libretro snes9x core headless): a battle is
   forced in the emulator, then the simulator is resumed from the same CPU+WRAM state with no input. All HP/MP/status
-  changes come out identical in value and order (22 events over 2600 frames on a 4-cat fight); event timing is within
-  ~0.3-1 %. The residual drift is because the interpreter charges bus cycles only, so `CYC_SCALE` adds 6 % for internal
+  changes come out identical in value and order (three battles on ROM (2), 13-60 events each, up to 1800-2600 frames); event timing is within
+  ~1-1.5 % (a few frames to ~14 frames over 1800). The residual drift is because the interpreter charges bus cycles only, so `CYC_SCALE` adds 8.6 % (calibrated on ROM (2)) for internal
   cycles and DRAM refresh. Near-simultaneous events (e.g. a poison tick vs an enemy action) can swap order in long fights.
 * Not modelled: PPU/APU timing effects (e.g. animation-length waits are as fast as the game's own waits allow),
   decimal-mode 8-bit SBC is approximate (unused by the battle code).
 
-## ROM bug found: Ancient Library battles crash
+## Crash sweep (ROM `Final Fantasy 5 (Japan) (patched)(2).sfc`)
 
-`ROM[0x24C75]` is `0xA9` in the shipped `(patched)(1).sfc`; the base ROM `Final Fantasy 5 (tr).sfc` has `0xE8` (INX) there
-in the blue-magic "learn" loop. `(patched)(1).sfc` is byte-for-byte the base ROM plus `FF5r Super Special Deep Clean.ips`, and
-that IPS contains the record (offset 0x24C75, 1 byte, A9). As shipped the code runs `LDA #$E0 / PHP / BRK` and the BRK vector
-`$0000` executes RAM as code. All four map-166 (Ancient Library) battles hit it, and any battle with a monster that casts blue
-magic; on the base ROM the same battles run normally. The simulator reports `outcome == "crash"`. This is a diagnosis only:
-**the ROMs and the IPS are never modified** (project rule), so the bot must avoid or otherwise handle these battles.
-Use `run.py --rom PATH` to simulate against either ROM.
+`run.py sweep` (level-1 party, ~3 min): **none of the 511 non-empty battles crashes**, Ancient Library (map 166) included.
+Ten time out at 20000 frames only because a level-1 party cannot beat them (0xd1, 0x16e, 0x17e, 0x1a1, 0x1b1, 0x1e4, 0x1ee,
+bosses 0x1f7, 0x1fe, 0x1ff); see `crashing_battles.json`.
 
-Sweep on the unmodified ROM (`run.py sweep`, level-1 party, ~3 min): **87 of 511 non-empty battles crash** (list with
-monster names in `crashing_battles.json`); 6 more time out at 20000 frames only because a level-1 party cannot beat them (0xd1, 0x16e, 0x1a1, 0x1b1, 0x1e4, bosses 0x1f7/0x1fe/0x1ff).
-Avoiding or handling these battles is up to the bot; the sim never patches the ROM.
+History: the earlier `(patched)(1).sfc` came from an IPS meant for a different romhack; it wrote `0xA9` at `0x24C75` (base `0xE8`),
+which crashed all blue-magic battles (87 of them). That ROM is no longer used. The simulator never modifies any ROM or IPS;
+`run.py --rom PATH` (or env `FFV_ROM`) selects the ROM, default `sim.DEFAULT_ROM`.
 
 ## Files
 

@@ -15,7 +15,7 @@ from sim import BattleSim
 
 STATE = "/mnt/project-files/retroarch-testbed/states/Snes9x/Final Fantasy V (Japan) (patched)(1).state4"
 
-ROM = "/mnt/project-files/FFV/Final Fantasy V (Japan) (patched)(1).sfc"
+from sim import DEFAULT_ROM as ROM
 
 def blocks(d):
     out, o = {}, d.find(b"NAM:")

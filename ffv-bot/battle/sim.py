@@ -17,8 +17,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cpu
 from data import BATTLE_OVER
 
-DEFAULT_ROM = "/mnt/project-files/FFV/Final Fantasy V (Japan) (patched)(1).sfc"
-CYC_SCALE = 62       # +6.05 % cycles (internal cycles, DRAM refresh); battle event timing then drifts < 0.3 % vs snes9x
+DEFAULT_ROM = os.environ.get("FFV_ROM", "/mnt/project-files/FFV/Final Fantasy 5 (Japan) (patched)(2).sfc")
+CYC_SCALE = 88       # +8.6 % cycles (internal cycles, DRAM refresh), calibrated vs snes9x on ROM (patched)(2); see validate/diff_battle.py
 EXEC_BATTLE = 0xC20000        # ExecBattle_ext (JSL target)
 EXEC_SOUND = 0xC40004         # ExecSound_ext: HLE'd to an immediate RTL
 VBLANK_WAIT = 0xD97CAC        # spin-wait for the battle NMI (idle-skipped)

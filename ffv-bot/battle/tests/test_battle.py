@@ -28,9 +28,10 @@ def test_simple_victory_is_deterministic():
     assert (a.frames, a.gil_gained, a.exp_gained) == (b.frames, b.gil_gained, b.exp_gained)
 
 @needs_rom
-def test_ancient_library_crash_is_detected():
-    d = GameData(ROM)    # ROM bug at 0x24C75 (0xA9, should be 0xE8): reported as a crash, never patched
-    assert run_battle(Field.new(d, party=4), 0x5C, rom=ROM, max_frames=20000).outcome == "crash"
+def test_ancient_library_battles_run():
+    d = GameData(ROM)    # these crashed on an older, wrongly patched ROM (blue-magic loop byte 0x24C75)
+    for enc in (0x5C, 0x5D, 0x62, 0x65):
+        assert run_battle(Field.new(d, party=4), enc, rom=ROM, max_frames=20000).outcome != "crash"
 
 @needs_rom
 def test_snapshot_restore_replays_identically():
