@@ -90,10 +90,15 @@ class Nav(Game):
         battle is over, and when a menu stays open too long (stuck in a sub-menu such as Item) cancel with B and start over.
         Returns True when the battle flag cleared."""
         self.wait(180)                  # let the battle load: writing the cheats while the battle graphics load can hang the game (black screen)
-        menu_since = None; menu_char = None; tries = 0; tick = 0
+        menu_since = None; menu_char = None; tries = 0; tick = 0; frozen = 0
         for i in range(limit):
             inb, over, mc = self.battle_state()
-            if not inb: return True
+            if not inb:
+                if self.field_running(): return True
+                frozen += 1                                  # the result windows (Gil, EXP, items) show with $18 already 0: A until the field runs again
+                if frozen > 300: return False
+                self.press("A", 3, 12); continue
+            frozen = 0
             tick += 1
             if tick % 6 == 0: self.cheat_battle()
             if over:

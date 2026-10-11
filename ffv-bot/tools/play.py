@@ -47,6 +47,20 @@ class Game:
         """Game frames per second of wall time, from the frame counter at WRAM $094A (0 when it does not tick)."""
         a = self.u8(0x94A); t = time.time(); time.sleep(dt); b = self.u8(0x94A)
         return ((b - a) & 255) / (time.time() - t)
+    def normalize_speed(self):
+        """Call once at start: if the emulator is already fast-forwarding (left on by a stopped run or by hand), switch it off and remember the normal rate."""
+        if not self.FF_ON: return
+        try: r = self.frame_rate()
+        except IOError: return
+        if r > 75:
+            self.cmd("FAST_FORWARD"); time.sleep(0.3); r = self.frame_rate()
+            print("   emulator was fast-forwarding: switched off (%.0f fps)" % r, flush=True)
+        if 5 < r <= 75: self._base_fps = r
+        self._ff = False
+    def field_running(self, dt=0.06):
+        """True when the field engine is running (the frame counter at WRAM $094A ticks); False in battles - including the result windows, when
+        the battle flag $18 is already 0 - and in other frozen states."""
+        a = self.u8(0x94A); time.sleep(dt); return self.u8(0x94A) != a
     def fast_forward(self, on):
         """Fast-forward on/off. Assumes the emulator runs at normal speed when first called; the normal-speed frame rate is measured then, and
         after each toggle the speed is checked against it (toggling again once if it went the wrong way), so a state changed by hand recovers."""

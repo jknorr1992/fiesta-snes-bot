@@ -18,6 +18,7 @@ class Exec(Nav):
     def __init__(self, S):
         super().__init__(require_rom(), fast=1.0, host=os.environ.get('FFV_HOST', '127.0.0.1'))
         self.S = S
+        self.normalize_speed()
 
     def fpos(self):
         """(map, x, y). The map comes from $0AD6 (the current map): $0AD4 keeps the old id after a map exit (LoadParentMap only sets $0AD6)."""
@@ -109,6 +110,22 @@ class Exec(Nav):
                 if n not in prev: prev[n] = (c, d); q.append(n)
         return None
 
+    def live_forced(self):
+        """True when the party stands on an auto-move (conveyor / sand current) tile of the current local map"""
+        m, x, y = self.fpos()
+        if m < 5: return False
+        t = self.u8(0x10000 + y * 64 + x)
+        b2 = self.u8(0x1186 + 2 * t + 1)
+        return bool(b2 & 0x80) and b2 != 0xFF
+
+    def settle_push(self, limit=80):
+        """wait until a conveyor push has finished: the party rests on a tile that is not an auto-move tile"""
+        last = None
+        for _ in range(limit):
+            self.wait(2); cur = self.fpos()
+            if cur == last and self.on_tile() and not self.live_forced(): return
+            last = cur
+
     def walk_dirs(self, dirs):
         """walk with one tap per tile (hold-and-poll proved unreliable). Auto-move tiles (conveyors) can advance the party past the
         tile just stepped on, so a position that matches a later tile of the path is accepted too. Stops on a mismatch."""
@@ -123,14 +140,17 @@ class Exec(Nav):
         stall = 0; post_battle = False; reroutes = 0; rerouted = False; n0 = len(dirs)
         while k < len(dirs):
             if k and dirs[k] != dirs[k - 1]: self.wait(24)
-            moved, p = self.step(BTN[dirs[k]])
-            if self.u8(0x18) == 1 or (not moved and self.u8(0xB57)):       # random battle (or a message box): win it, then go on
+            if self.live_forced(): self.settle_push(); moved, p = True, self.pos()      # on a conveyor tile the engine moves the party by itself: no tap
+            else:
+                moved, p = self.step(BTN[dirs[k]])
+                self.settle_push(); p = self.pos()
+            if self.u8(0x18) == 1 or (not moved and (self.u8(0xB57) or not self.field_running())):       # random battle (or a message box, or its result windows): win it, then go on
                 print("   battle during the walk at %s" % (self.pos(),), flush=True)
                 self.fight(); post_battle = True; [self.press('A', 3, 20) for _ in range(20 if self.u8(0xB53) == 0 else 8)]; self.settle(); p = self.pos()
                 if (p[1], p[2]) == (tiles[k - 1] if k else (cx, cy)): continue     # battle came before the step: redo it
             if p[0] != m0: return (n0 if rerouted else k + 1), self.pos()
             cur = (p[1], p[2])
-            j = next((i for i in range(k, min(k + 4, len(tiles))) if tiles[i] == cur), None)
+            j = next((i for i in range(k, len(tiles)) if tiles[i] == cur), None)      # a conveyor (sand current) can carry the party over several path tiles in one tap
             if j is None and cur == (tiles[k - 1] if k else (cx, cy)) and not post_battle and stall >= 2 and reroutes < 40 and tiles:
                 new = self.reroute(tiles[-1], avoid=())          # something is in the way (a wandering NPC): path again around the live objects
                 reroutes += 1

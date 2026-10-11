@@ -81,8 +81,8 @@ class Rom:
     def treasures(self, m):
         """[(x, y, b2, b3, index)] chests of local map m. MapTreasures at 0xD13000 (1 byte per map: first treasure index)."""
         r = self.r
-        a, b = r[0xD13000 + m], r[0xD13000 + m + 1]
-        return [(r[0xD13210 + 4 * i], r[0xD13210 + 4 * i + 1], r[0xD13210 + 4 * i + 2], r[0xD13210 + 4 * i + 3], i) for i in range(a, b)]
+        a, b = r[0x113000 + m], r[0x113000 + m + 1]
+        return [(r[0x113210 + 4 * i], r[0x113210 + 4 * i + 1], r[0x113210 + 4 * i + 2], r[0x113210 + 4 * i + 3], i) for i in range(a, b)]
 
     # ---- condition scripts (event triggers: 0x18E080, NPC scripts: 0xE0000) ----
     @functools.lru_cache(maxsize=None)
