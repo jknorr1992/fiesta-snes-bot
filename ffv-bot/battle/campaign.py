@@ -762,7 +762,8 @@ class Campaign:
     def replan(self, enc, bg, label, runs, rate):
         """A fight the party cannot win 95% of the time: a veteran changes the role that fits the fight worst (the planner in `hard` mode with
         this fight as its only foresight, ignoring ABP) and tries again; a few such changes, each tested with the full batch."""
-        if not self.avail or rate >= 0.85: return None          # that close, one more level does the job (the grind), no change of jobs
+        at_cap = bool(self.cap()) and self.top_level() >= self.cap()
+        if not self.avail or (rate >= 0.85 and not at_cap): return None          # that close, one more level does the job (the grind), no change of jobs; at the level cap there is no more level to grind
         avoid = set()
         for attempt in range(2):
             old_state, old_jobs = self.state, dict(self.jobs)
