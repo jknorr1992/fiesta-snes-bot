@@ -34,6 +34,7 @@ from knowledge import Bestiary
 from abilities import Abilities
 from jobs import JobSwitcher
 from jobplan import Planner, Foresight, load_unlocks
+from bossneeds import BossNeeds, LOOKAHEAD_STAGES
 from sim import L, R, Command
 
 TENT = "Tent"
@@ -219,7 +220,7 @@ def equip_owned(state, d, log):
         log.append(f"{SLOT_NAMES[slot_i]}: {slot} {d.item_name(old) if old and old != 0x80 else '-'} -> {d.item_name(i)} (owned)")
 
 SPELL_VALUE = {"Protect": 45, "Shell": 45, "Life": 55, "Cure": 60, "Cure2": 70, "Cure3": 110, "Fire": 30, "Ice": 30, "Bolt": 30, "Fire2": 60, "Ice2": 60, "Bolt2": 60, "Fire3": 100, "Ice3": 100, "Bolt3": 100,
-               "Haste": 55, "Slow": 35, "Regen": 30, "Stop": 40, "Haste2": 70, "Slow2": 45,
+               "Float": 20, "Esuna": 40, "Death": 40, "Mute": 25, "Haste": 55, "Slow": 35, "Regen": 30, "Stop": 40, "Haste2": 70, "Slow2": 45,
                "Choco": 20, "Sylph": 20, "Rmora": 20, "Shiva": 60, "Ramuh": 70, "Ifrit": 70, "Golem": 50, "Titan": 60}
 
 
@@ -230,7 +231,15 @@ def spell_jobs(d, sp):
     icon = d.spell_icon(sp)
     return {"WhiteMage", "RedMage"} if icon == "white" else {"BlackMage", "RedMage"} if icon == "black" else set()
 
-def shop(state, stock, shops, d, reserve, jobs, log, elem=None):
+def castable_level(known, sp):
+    """Has the character learned the magic level (a command ability: White 1-6 ...) that casting spell `sp` needs?"""
+    if sp < 18: return 44 + sp // 3 in known
+    if sp < 36: return 50 + (sp - 18) // 3 in known or (sp < 27 and 73 + (sp - 18) // 3 in known)
+    if sp < 54: return 56 + (sp - 36) // 3 in known or (sp < 45 and 73 + (sp - 36) // 3 in known)
+    if sp < 72: return 62 + (sp - 54) // 3 in known
+    return 68 + (sp - 72) // 3 in known
+
+def shop(state, stock, shops, d, reserve, jobs, log, elem=None, needs=None):
     """Greedy: repeatedly make the purchase (equipment upgrade for a member, or a spell for a white/black mage) with the best
     (power gain)/(net gil) that the money allows, keeping `reserve` gil.  Equipment gain = gear_score difference; spells have fixed values."""
     price_of = {**stock["weapon"], **stock["armor"]}
@@ -260,6 +269,7 @@ def shop(state, stock, shops, d, reserve, jobs, log, elem=None):
             val = SPELL_VALUE[nm]
             if elem and icon == "black" and sp < 54:                      # an element the coming monsters are weak to is worth more; one they absorb / resist, less
                 val *= 1 + elem.get(d.r[0x110B80 + 8 * sp + 7], 0)
+            if needs: val *= 1 + 1.5 * needs.spell_need(sp)              # what the bosses ahead call for (bossneeds.py): bought before the fight, not during it
             if best is None or val / price > best[0]: best = (val / price, "spell", sp, nm, price)
         if not best: break
         if best[1] == "spell":
@@ -496,8 +506,52 @@ class Campaign:
                           attack_power={sp: tp.spell_info(sp)["power"] for sp in cast if sp in tp.attack_all},
                           attack_aoe={sp: sp in tp.summon_row or bool(self.d.r[SPELL_TABLE + 8 * sp] & 0x80) for sp in cast if sp in tp.attack_all},
                           heal=sum(1 for sp in tp.heal_ids if sp in cast), buffs=sum(1 for sp in tp.buff_ids if sp in cast), blue_known=blue.get(i, set()))
+        buy_all = self.buyable(job); wf = f.to_wram()
+        if "abil" not in self.__dict__: self.abil = Abilities(self.d)
+        for i, x in out.items():
+            known = self.abil.known(wf, i); buy = {sp: pr for sp, pr in buy_all.items() if castable_level(known, sp)}       # the magic level must be learned too
+            have = set(x["castable"]) | set(buy)
+            x["buyable"] = buy
+            x["attack_power"] = {sp: tp.spell_info(sp)["power"] for sp in have if sp in tp.attack_all}
+            x["attack_aoe"] = {sp: sp in tp.summon_row or bool(self.d.r[SPELL_TABLE + 8 * sp] & 0x80) for sp in have if sp in tp.attack_all}
+            x["heal"] += sum(1 for sp in tp.heal_ids if sp in buy and sp not in x["castable"])
+            x["buffs"] += sum(1 for sp in tp.buff_ids if sp in buy and sp not in x["castable"])
+            # magic levels the job teaches within its next two abilities: a veteran counts the spells they open (they cost ABP first, so half weight)
+            jid = self.d.job_id(job); lst = self.abil.job_list(jid); lvl = self.js.job_state(wf, i).get(jid, (0, 0))[0]
+            nxt = known | {ab for _, ab in lst[lvl:lvl + 2]}
+            soon = {sp: pr for sp, pr in buy_all.items() if sp not in buy and castable_level(nxt, sp)}
+            x["soon"] = soon
+            x["heal"] += 0.5 * sum(1 for sp in tp.heal_ids if sp in soon)
+            x["buffs"] += 0.5 * sum(1 for sp in tp.buff_ids if sp in soon)
         self._probes[key] = out
         return out
+
+    def buyable(self, job):
+        """{spell id: price} the shops sell that `job` could cast and the party can pay for now (cheapest first, keeping the reserve): the planner
+        counts them as the job's spells, since the shopping that follows its choice buys them (bossneeds.py raises the worth of the ones the
+        bosses ahead call for)."""
+        idx = getattr(self, "cur_idx", None)
+        if idx is None or not self.jobs_unlocked: return {}
+        stock = self.visible_stock(idx)["magic"]; budget = self.state.gil - 3 * self.shops.tent_price; out = {}
+        have = {s_ for s_ in range(96) if self.state.wram[MAGIC_BITS + (s_ >> 3)] & (0x80 >> (s_ & 7))}
+        for sp, price in sorted(stock.items(), key=lambda t: t[1]):
+            if sp in have or job not in spell_jobs(self.d, sp) or price > budget or self.d.spell_name(sp) not in SPELL_VALUE: continue
+            out[sp] = price; budget -= price
+        return out
+
+    def boss_needs(self, idx, extra=()):
+        """BossNeeds of the bosses (scripted fights and boss-flag battles) in the stages from `idx` on, LOOKAHEAD_STAGES deep, each weighted
+        by its distance; `extra`: battle ids that count as the next boss (a fight the party just failed)."""
+        if "_bn" not in self.__dict__: self._bn = {}
+        key = (idx, tuple(extra))
+        if key not in self._bn:
+            if "B" not in self.__dict__: self.B = Bestiary(self.d)
+            seen = []; bosses = [(e, 0) for e in extra]
+            for k, st in enumerate(self.stages[idx:idx + LOOKAHEAD_STAGES]):
+                for enc, _bg, _l, scripted in schedule(st):
+                    if (scripted or self.d.battle(enc)["boss"]) and enc not in seen: seen.append(enc); bosses.append((enc, k))
+            self._bn[key] = BossNeeds(self.d, self.B, bosses) if bosses else None
+        return self._bn[key]
 
     def plan_jobs(self, idx, hard=False, avoid=(), fights=None, why="", comfort=None):
         """Choose the jobs for the area starting at stage `idx` (and the one after it) and switch the party to them; True when anything changed."""
@@ -505,9 +559,10 @@ class Campaign:
         if "planner" not in self.__dict__:
             self.abil = getattr(self, "abil", None) or Abilities(self.d); self.B = Bestiary(self.d); self.planner = Planner(self.d, self.abil, self.js, self.unlocks)
         names = self.members(); w = self.state.to_wram()
+        explicit = fights is not None
         if fights is None: fights = [x for st in self.stages[idx:idx + 2] for x in schedule(st)]
         if not fights: return False
-        fs = Foresight(self.d, self.B, fights)
+        fs = Foresight(self.d, self.B, fights, needs=self.boss_needs(idx, extra=[f[0] for f in fights if f[3]] if explicit else ()))
         cur = [self.d.job_name(self.state.character(SLOT_NAMES.index(n)).job) for n in names]
         plan = self.planner.plan(w, names, sorted(self.avail), fs, self.probe, cur, comfort=self.comfort if comfort is None else comfort, hard=hard, avoid=avoid)
         if [plan[n] for n in names] == cur: return False
@@ -829,7 +884,8 @@ class Campaign:
         for i in range(4):
             ch = state.character(i)
             if not ch.in_party: continue
-            new = self.abil.loadout(w, i, ch.commands, has_shield=bool(ch.lh_shield), two_handed=bool(ch.rh_weapon) and not ch.lh_weapon, supported=self.supported)
+            new = self.abil.loadout(w, i, ch.commands, has_shield=bool(ch.lh_shield), two_handed=bool(ch.rh_weapon) and not ch.lh_weapon, supported=self.supported,
+                                    needs=self.boss_needs(self.cur_idx) if self.a.plan and getattr(self, "cur_idx", None) is not None else None)
             if new != ch.commands:
                 w = self.js.set_commands(w, i, new)              # passives also change stat modifiers, flags and max HP / MP
                 log.append(f"{SLOT_NAMES[i]}: " + ", ".join(self.abil.passive_name(c & 0x7F) + "*" if c & 0x80 else self.d.command_name(c) for c in new[1:3] if c))
@@ -837,12 +893,8 @@ class Campaign:
         if not quiet:
             for l in log: self.say("  abilities: " + l)
 
-    def go_shopping(self, idx):
-        self.equip_abilities()
-        if idx in self.timed:                    # the escape from the exploding castle: no shops, no way out (user, 2026-10-12)
-            log = []; equip_owned(self.state, self.d, log)
-            for l in log: self.say("  equipped: " + l)
-            return
+    def visible_stock(self, idx):
+        """What the shops of the towns passed up to stage `idx` sell."""
         areas = json.load(open(self.a.areas))
         visited = {st["name"] for st in self.stages[:idx + 1] if st["kind"] == "local"}
         def label(m):
@@ -854,11 +906,19 @@ class Campaign:
         if self.a.extra_towns:       # towns the route passes without a random fight: story map ids rise along the route
             top = max(m for st in self.stages[:idx + 1] for m in st["maps"]) if any(st["maps"] for st in self.stages[:idx + 1]) else 0
             maps |= {m for m in self.shops.maps if m <= top}
-        stock = self.shops.stock(maps)
+        return self.shops.stock(maps)
+
+    def go_shopping(self, idx):
+        self.equip_abilities()
+        if idx in self.timed:                    # the escape from the exploding castle: no shops, no way out (user, 2026-10-12)
+            log = []; equip_owned(self.state, self.d, log)
+            for l in log: self.say("  equipped: " + l)
+            return
+        stock = self.visible_stock(idx)
         reserve = 3 * self.shops.tent_price          # keep three Tents' worth for healing (a broke party cannot rest and fails every later fight)
         log = []
         equip_owned(self.state, self.d, log)
-        shop(self.state, stock, self.shops, self.d, reserve, ({n: j for n, j in enumerate(sorted(self.avail))} if self.avail else {}) if self.jobs_unlocked else {}, log, self.element_weights(idx))
+        shop(self.state, stock, self.shops, self.d, reserve, ({n: j for n, j in enumerate(sorted(self.avail))} if self.avail else {}) if self.jobs_unlocked else {}, log, self.element_weights(idx), self.boss_needs(idx))
         self.stock_potions(stock, reserve, log)
         for l in log: self.say("  bought: " + l)
 

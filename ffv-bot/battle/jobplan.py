@@ -16,6 +16,8 @@ import itertools
 import json
 import os
 
+from bossneeds import SLOW_IDS, STOP_IDS, HASTE_IDS
+
 ROLES = ("front", "nuker", "healer", "flex")          # flex: a second damage dealer, or a buffer / debuffer when the job is good at it
 FLEX_DAMAGE = 0.85                                     # a second front-liner / nuker is worth this much of a first one
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -69,7 +71,7 @@ def load_unlocks(path=None):
 
 class Foresight:
     """What the coming fights look like (a few stages ahead), from the encounter tables and the monsters' own data."""
-    def __init__(self, data, bestiary, fights):
+    def __init__(self, data, bestiary, fights, needs=None):
         """`fights`: [(battle id, background, label, scripted)] as campaign.schedule() lists them."""
         d = data
         counts = []; hps = []; defs = []; mdefs = []; weak = {}; bosses = []; phys = mag = 0.0; n = 0; blue = {}
@@ -98,6 +100,7 @@ class Foresight:
                             if f in (1, 2): phys += 1
                             elif f: mag += 1
         n = max(1, n)
+        self.needs = needs                           # bossneeds.BossNeeds of the bosses further ahead (None: not looked at)
         self.fights = n
         self.blue = {a: (v[0] / n, v[1]) for a, v in blue.items()}      # {blue spell id: (chance per fight that it is cast at someone, power)}
         self.avg_count = sum(counts) / n if counts else 1.0
@@ -112,19 +115,24 @@ class Foresight:
 
     def __repr__(self):
         return (f"<Foresight {self.fights} fights, {self.avg_count:.1f} enemies, hp {self.avg_hp:.0f}, def {self.avg_def:.0f}/{self.avg_mdef:.0f}, "
-                f"boss hp {self.boss_hp}, physical share {self.phys_share:.0%}>")
+                f"boss hp {self.boss_hp}, physical share {self.phys_share:.0%}" + (f", wanted: " + ", ".join(f"{n} {v}" for v, n in self.needs.top(4)) if self.needs and self.needs.spell else "") + ">")
 
 
-def command_value(abil, ab):
-    """Worth of learning ability index `ab` (command or passive) for the run."""
+NEED_GAIN = 1.5           # an ability the coming bosses call for fully is worth 1 + NEED_GAIN times its base value
+
+
+def command_value(abil, ab, needs=None):
+    """Worth of learning ability index `ab` (command or passive) for the run: the base value from the tables above, raised by what the
+    bosses ahead call for (`needs`, bossneeds.BossNeeds): the spells of a magic level, or a passive that answers their attacks."""
     d = abil.d
     if ab >= 0x4E:
-        return PASSIVE_VALUE.get(abil.passive_name(ab - 0x4E), 1)
+        nm = abil.passive_name(ab - 0x4E)
+        return PASSIVE_VALUE.get(nm, 1) * (1 + NEED_GAIN * needs.passive_need(nm) if needs else 1)
     name = d.command_name(ab)
     if name in GROUP_START:
         lvl = ab - GROUP_START[name]
         vals = LEVEL_VALUE[name]
-        return vals[min(lvl, len(vals) - 1)]
+        return vals[min(lvl, len(vals) - 1)] * (1 + NEED_GAIN * needs.level_need(name, lvl) if needs else 1)
     return COMMAND_VALUE.get(name, 1)
 
 
@@ -135,9 +143,10 @@ class Planner:
         self.d, self.abil, self.js = data, abil, switcher
         self.unlocks = unlocks if unlocks is not None else load_unlocks()
         self.last_plan = None
+        self.needs = None
 
     # ---- ABP funnel
-    def learn_value(self, wram, char, job, horizon=3):
+    def learn_value(self, wram, char, job, horizon=4):
         """Value per ABP of what the member would learn next in `job`, over the next `horizon` abilities (0 when mastered)."""
         job = self.d.job_id(job)
         lst = self.abil.job_list(job)
@@ -148,7 +157,7 @@ class Planner:
             cost, ab = lst[k]
             if ab in known: continue                       # already learned through another job: the ABP is still needed to pass it
             need = max(1, cost - (abp if first else 0)); first = False
-            total += command_value(self.abil, ab) / need
+            total += command_value(self.abil, ab, self.needs) / need
         return total
 
     def blue_bonus(self, facts, fs):
@@ -185,12 +194,16 @@ class Planner:
             heals = facts.get("heal", 0)
             return base * (1.0 if heals else 0.3)
         if role == "support":
-            return base * (0.5 + 0.5 * min(1.0, facts.get("buffs", 0) / 2.0))
+            v = base * (0.5 + 0.5 * min(1.0, facts.get("buffs", 0) / 2.0))
+            if self.needs and self.needs.utility and any(sp in facts.get("castable", {}) or sp in facts.get("buyable", {}) or sp in facts.get("soon", {}) for sp in SLOW_IDS + STOP_IDS + HASTE_IDS):
+                v *= 1 + 0.6 * self.needs.utility           # a boss that Slow / Stop / Haste decide: the caster of them is worth more
+            return v
         return float(base)          # front: the job's stats decide below
 
     def plan(self, wram, names, avail, fs, probe, current, comfort=0.0, hard=False, avoid=()):
         """-> {member name: job}.  `names` are the in-party members (slot index = SLOT order), `current` their current jobs, `comfort` in
         [0, 1]: how much slack the last fights left (1 = effortless); `hard` ignores the funnel; `avoid` is a set of (role, job) not to pick."""
+        self.needs = getattr(fs, "needs", None)
         roles = list(ROLES[:len(names)]) if len(names) < 4 else list(ROLES)
         jobs = [j for j in avail if j in FIT]
         facts = {j: probe(j) for j in jobs}

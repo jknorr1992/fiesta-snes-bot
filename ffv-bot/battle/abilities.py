@@ -64,7 +64,7 @@ class Abilities:
     def passives_known(self, wram, char):
         return [(i - 0x4E, self.passive_name(i - 0x4E)) for i in sorted(self.known(wram, char)) if i >= 0x4E]
 
-    def loadout(self, wram, char, commands, has_shield=False, two_handed=False, supported=()):
+    def loadout(self, wram, char, commands, has_shield=False, two_handed=False, supported=(), needs=None):
         """Best commands[4] for the character: Fight/Item fixed, the two free slots hold (best first) the job's magic command,
         then whichever of the job's own class command / learned commands (`supported`: names the policy can really use) and the
         learned passives score highest, then leftovers."""
@@ -74,6 +74,7 @@ class Abilities:
         for c in keep: scored.append((100, c))
         for pid, nm in self.passives_known(wram, char):
             sc = PASSIVE_SCORE.get(nm, 0)
+            if needs: sc *= 1 + needs.passive_need(nm)           # the bosses ahead hit hard / physically: HP and evasion passives matter more
             if nm == "Dbl.Grip" and (has_shield or not two_handed): sc = 0
             if sc > 0: scored.append((sc, 0x80 | pid))
         taken = set(keep)
