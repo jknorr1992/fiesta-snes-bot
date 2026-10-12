@@ -364,7 +364,7 @@ class Campaign:
 
     # ---- party
     def new_state(self):
-        f = Field.new(self.d, party=3)
+        f = Field.new(self.d, party=3, battle_config=self.a.battle_config)
         f.gil = 0
         for i in range(3):
             ch = f.character(i); ch.hp = ch.max_hp; ch.mp = ch.max_mp; f.set_character(i, ch)
@@ -724,6 +724,7 @@ class Campaign:
         if self.a.resume and os.path.exists(sj):
             j = json.load(open(sj)); idx = j["stage"] + 1; self.jobs_unlocked = j["jobs_unlocked"]; self.faris_in = j["faris_in"]; self.tents = j["tents"]; self.looted = set(j.get("looted", []))
             self.state = Field.from_wram(open(os.path.join(self.a.out, "state.bin"), "rb").read(), self.d)
+            self.state.wram[0x970] = self.a.battle_config
             bl = os.path.join(self.a.out, "before_liquid.bin")
             if os.path.exists(bl): self.before_liquid = open(bl, "rb").read()
             self.liquid_beaten = self.liquid_idx is not None and idx > self.liquid_idx
@@ -856,6 +857,7 @@ def main():
     ap.add_argument("--jobs", type=int, default=None, help="worker processes")
     ap.add_argument("--runs", type=int, default=64, help="battles per fight batch")
     ap.add_argument("--flawless", type=float, default=0.95)
+    ap.add_argument("--battle-config", type=lambda x: int(x, 0), default=0x08, help="config byte $0970 cmmmbsss (c command window/short, m message speed, b 1 = wait mode, s battle speed; user 2026-10-12: speeds 0, wait mode = 0x08; the game default is 0x2A)")
     ap.add_argument("--input-latency", type=int, default=12, help="frames of the escape timer a player needs to enter a Fight command before the wait-mode sub-menus start (menu ignores input for 9 frames after opening, then one tap; Item and other commands +6); 0 = commands are instant")
     ap.add_argument("--no-reassign", dest="reassign", action="store_false", help="do not try other job assignments when a boss batch fails")
     ap.add_argument("--steps-per-map", type=int, default=80, help="steps walked on each local map (for the number of random encounters)")
