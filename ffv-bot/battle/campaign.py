@@ -470,6 +470,12 @@ class Campaign:
         for perm in itertools.product(pool, repeat=len(names)) if len(pool) ** len(names) <= 64 else itertools.permutations(pool, len(names)):
             a = dict(zip(names, perm))
             if a != cur and len(set(a.values())) >= min(3, len(pool)): cands.append(a)
+        # Four Job Fiesta lets a job be taken twice; the black mage is the party's damage (every attack spell can hit all enemies), so the
+        # assignments with two of them are screened as well (Ifrit at lv19: 22/24 flawless vs 18/24 with one)
+        if "BlackMage" in pool:
+            for perm in itertools.product(pool, repeat=len(names)):
+                a = dict(zip(names, perm))
+                if perm.count("BlackMage") == 2 and len(set(perm)) >= 3 and a != cur and a not in cands: cands.append(a)
         if not cands: return None
         short = max(8, runs // 4); scores = []
         for a in cands:
