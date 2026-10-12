@@ -184,7 +184,9 @@ class VeteranPolicy(TacticalPolicy):
         set off a lethal counter is replaced by another target or spell when one exists."""
     def __init__(self, data, bestiary, monster_ids, **kw):
         super().__init__(data, **kw)
-        self.B = bestiary; self.ids = monster_ids; self.threat = {}; self.kinds = (0, 0); self.mthreat = {}
+        self.B = bestiary; self.ids = monster_ids; self.threat = {}; self.kinds = (0, 0); self.mthreat = {}; self.pending = {}
+        try: self.elixir_id = data.item_id("Elixir")
+        except Exception: self.elixir_id = None
 
     # ---- threat model -------------------------------------------------------------------------
     def _moves(self, sim, m, mons):
@@ -234,6 +236,59 @@ class VeteranPolicy(TacticalPolicy):
             if n in by and ((n == "Protect" and phys) or (n == "Shell" and mag)): seq.append(by[n])
         if "Haste" in by: seq.append(by["Haste"])
         return seq
+
+    # ---- support with bookkeeping: nobody queues a second heal on a target that already has one coming ------------------------------
+    def _covered(self, kind, tgt, sim, party):
+        k = (kind, tgt); v = self.pending.get(k)
+        if v is None: return False
+        frame, hp0 = v
+        done = (kind == "r" and not party[tgt].dead) or (kind == "h" and (party[tgt].hp > hp0 or party[tgt].dead)) or sim.frame - frame > 1500
+        if done: del self.pending[k]; return False
+        return True
+
+    def _support(self, sim, char, party, me, mons):
+        d = self.d
+        # 1. revive (most valuable first: whoever heals / has the biggest MP pool), one revive per fallen ally
+        fallen = sorted((c for c in party if c.dead and c.i != char and not self._covered("r", c.i, sim, party)), key=lambda c: -c.max_mp)
+        if fallen and not me.dead:
+            ally = fallen[0].i
+            for sp in self.life_ids:
+                cost = self._known(sim, char, sp)
+                if cost is not None and cost <= me.mp:
+                    self.pending[("r", ally)] = (sim.frame, 0)
+                    return Command(MAGIC_COMMAND, 0x20, 0, Command.party_mask(ally), sp)
+            slot = next((sl for sl, it in sim.inventory_slots.items() if it == self.pd_id), None)
+            if slot is not None:
+                self.pending[("r", ally)] = (sim.frame, 0)
+                return Command.item(slot, party=(ally,))
+        # 2. heal: the member the next top hit would hurt most
+        def need(c):
+            hi = self.threat.get(c.i, (0, 0))[1]
+            return c.hp - hi
+        hurt = [c for c in party if not c.dead and c.max_hp and c.hp > 0 and c.row & 0x40 == 0 and not self._covered("h", c.i, sim, party)
+                and (c.hp / c.max_hp < self.threshold(c) or (self.hard and c.hp <= 0.8 * self.threat.get(c.i, (0, 0))[1]))]
+        if hurt:
+            ally = min(hurt, key=lambda c: (need(c) if self.hard else c.hp / c.max_hp)).i
+            a = party[ally]
+            for sp in reversed(self.heal_ids):
+                cost = self._known(sim, char, sp)
+                if cost is not None and cost <= me.mp:
+                    if sp != self.heal_ids[0] and (a.max_hp - a.hp) < 40 * (self.heal_ids.index(sp) + 1): continue
+                    self.pending[("h", ally)] = (sim.frame, a.hp)
+                    return Command(MAGIC_COMMAND, 0x20, 0, Command.party_mask(ally), sp)
+            # no spell from me: a healer who can still cast takes the job, an item only when the hit that kills is close
+            healer_ready = any(not c.dead and c.i != char and any((self._known(sim, c.i, sp) or 99999) <= c.mp for sp in self.heal_ids) for c in party)
+            danger = a.hp <= self.threat.get(ally, (0, 0))[1] or a.hp / a.max_hp < self.potion_below
+            if danger or not healer_ready:
+                inv = sim.inventory_slots
+                deficit = a.max_hp - a.hp
+                order = ([self.elixir_id] if self.elixir_id and deficit > 250 else []) + self.potion_ids
+                for item in order:
+                    slot = next((sl for sl, it in inv.items() if it == item), None)
+                    if slot is not None:
+                        self.pending[("h", ally)] = (sim.frame, a.hp)
+                        return Command.item(slot, party=(ally,))
+        return None
 
     def priority(self, m):
         # kill first what hurts most per HP left (its best possible hit / its remaining HP); equal threats -> weakest first
