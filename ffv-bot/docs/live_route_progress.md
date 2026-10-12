@@ -19,6 +19,7 @@ from the party with the black chocobo (flag 58, Black Chocobo Forest NPC).
 | flag:75, flag:178 | the NPC battle on map 221 (group 451), then the deck scene (flag 178) |
 | map:195 ... map:217 | Lonka Ruins entrance (map 195 (20,42)), then the stairs 195 -> 196 -> 197 -> 215 -> 216 -> 217 |
 | pos:218:23:29, pos:218:23:15 | on map 217 press A at (25,32) (event 153), take the stair at (25,39) (NOT the one at (19,21): it lands in a dead-end nook with chests), talk to the guardian NPC (event 164), walk to (23,15) (event 163); the doorway (23,14) leads to the Earth Crystal (map 220), whose scene ends on the world map at (64,162) in the airship |
+| flag:80, flag:83, flag:40, flag:84, map:123 | the meteor chain after the Earth Crystal (one meteor flag each: 80, 83, 84, plus Karnak NPC flag 40), then back to the Tycoon meteor cave (map 123); the arrival trigger at (21,26) plays event 1193 (sets flag 79, hides Cid/Mid NPCs 307/308). The warp pad trigger 445 (flag 72 clear, 73 set) is not active; the way on is world map event 183 at world 1 (146,115), needs flag 495, lands in world 2 (map 1) |
 
 Walker notes: sand currents/conveyors (tile prop byte 2 bit 7) move the party by themselves; the walker does not tap on them and waits until
 the push ends. Battle result windows are detected by the frozen frame counter ($094A).
