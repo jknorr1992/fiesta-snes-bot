@@ -31,6 +31,7 @@ from field import Field, Character, FIELD_CHAR, CHAR_SIZE, RNG_SEED, FIELD_ITEMS
 from party import Catalog, _norm
 from policy import SmartPolicy, FleePolicy, TacticalPolicy, VeteranPolicy
 from knowledge import Bestiary
+from abilities import Abilities
 from sim import L, R, Command
 
 TENT = "Tent"
@@ -519,7 +520,21 @@ class Campaign:
         # town maps hold their shops: use every map whose region heading belongs to a visited stage name
         return maps
 
+    def equip_abilities(self):
+        """Fill the two free ability slots of every member from what its ABP has unlocked (abilities.py)."""
+        if "abil" not in self.__dict__: self.abil = Abilities(self.d)
+        w = self.state.to_wram(); log = []
+        for i in range(4):
+            ch = self.state.character(i)
+            if not ch.in_party: continue
+            new = self.abil.loadout(w, i, ch.commands, has_shield=bool(ch.lh_shield), two_handed=bool(ch.rh_weapon) and not ch.lh_weapon)
+            if new != ch.commands:
+                ch.commands = new; self.state.set_character(i, ch)
+                log.append(f"{SLOT_NAMES[i]}: " + ", ".join(self.abil.name(c & 0x7F) + "*" if c & 0x80 else self.d.command_name(c) for c in new[1:3] if c))
+        for l in log: self.say("  abilities: " + l)
+
     def go_shopping(self, idx):
+        self.equip_abilities()
         areas = json.load(open(self.a.areas))
         visited = {st["name"] for st in self.stages[:idx + 1] if st["kind"] == "local"}
         def label(m):
