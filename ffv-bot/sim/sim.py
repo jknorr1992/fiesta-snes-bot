@@ -530,7 +530,48 @@ class Sim:
                     tgt = State.clone(s); tgt.x, tgt.y = v[2], v[3]; tgt.veh = i + 1; tgt.vtab[i][1] |= 0x80
                     acts.append(Action("boardA", "board vehicle %d at (%d,%d)" % (i + 1, v[2], v[3]), dist[(v[2], v[3])] + 1, (tgt, False)))
                     acts[-1].path = self._backtrack(par, (v[2], v[3]))
+        # the submarine dives (A on the surface) and surfaces (A underwater) at the same x, y: underwater map m+2 lies under surface map m
+        if vt == 4 and w in (1, 2, 3, 4):
+            if w <= 2:
+                if dist.get(start) is not None and self._sub_can_pass(w + 2, start, s.flags):
+                    tgt = State.clone(s); tgt.map = w + 2
+                    acts.append(Action("dive", "dive at (%d,%d) world %d" % (start[0], start[1], w), 1, (tgt, False)))
+            else:
+                sw = w - 2; smk = self.W.mod_key(sw, s.flags)
+                comp = self._water_comp(sw, smk)
+                best = {}
+                for node, dd in dist.items():
+                    if not self.W.p0[sw][self.W.tile(sw, node[0], node[1], smk)] & 0x10: continue
+                    c = comp.get(node)
+                    if c is not None and (c not in best or dd < dist[best[c]]): best[c] = node     # one surfacing per body of water
+                for node in best.values():
+                    tgt = State.clone(s); tgt.map = sw; tgt.x, tgt.y = node
+                    acts.append(Action("surface", "surface at (%d,%d) world %d" % (node[0], node[1], sw), dist[node] + 1, (tgt, False)))
+                    acts[-1].path = self._backtrack(par, node)
         return acts
+
+    def _sub_can_pass(self, w, pos, flags):
+        return bool(self.W.p0[w][self.W.tile(w, pos[0], pos[1], self.W.mod_key(w, flags))] & 0x10)
+
+    def _water_comp(self, w, mk):
+        """connected bodies of submarine water on world w: {(x, y): component id}"""
+        cache = self.__dict__.setdefault("_water_cache", {})
+        key = (w, mk)
+        if key in cache: return cache[key]
+        W = self.W; rows = W.rows(w, mk); p0 = W.p0[w]
+        comp = {}; n = 0
+        for y0 in range(256):
+            for x0 in range(256):
+                if (x0, y0) in comp or not p0[rows[y0][x0]] & 0x10: continue
+                comp[(x0, y0)] = n; q = collections.deque([(x0, y0)])
+                while q:
+                    x, y = q.popleft()
+                    for dx, dy in ((0, -1), (1, 0), (0, 1), (-1, 0)):
+                        p = ((x + dx) & 255, (y + dy) & 255)
+                        if p not in comp and p0[rows[p[1]][p[0]]] & 0x10: comp[p] = n; q.append(p)
+                n += 1
+        cache[key] = comp
+        return comp
 
     def _world_barriers(self, w):
         cache = self.__dict__.setdefault("_wbarrier_cache", {})
@@ -622,6 +663,8 @@ class Sim:
             return self._run_after(tgt, ev, 0) if ev else self.arrive(tgt, False)
         if act.kind == "boardA":
             return [tgt]
+        if act.kind in ("dive", "surface"):
+            return self.arrive(tgt, False) if act.kind == "dive" else [tgt]
         if act.kind == "walkdisembark":
             return self.arrive(tgt, True)
         return self.arrive(tgt, True)
