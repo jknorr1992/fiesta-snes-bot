@@ -1,0 +1,5 @@
+# world 2, from the arrival island (206,110): use a Tent from the Item menu first (capture dream, then Galuf alone in Castle Exdeath map 225)
+map:230 map:1 map:247 map:248 map:307 map:308 map:253 map:309 map:310 map:259
+# then (live-verified): talk moogle flag:302, waterway event 235 at map 261 (37,15) facing down + A
+flag:302 map:265 map:361 map:291
+# 265 = Castle of Bal, 281/282/283 = Quelb (event 244, talk npc 3 event 243, event 794), 291 = Drakenvale entrance

@@ -23,3 +23,7 @@ from the party with the black chocobo (flag 58, Black Chocobo Forest NPC).
 
 Walker notes: sand currents/conveyors (tile prop byte 2 bit 7) move the party by themselves; the walker does not tap on them and waits until
 the push ends. Battle result windows are detected by the frozen frame counter ($094A).
+
+## World 2 (data/goals_world2.txt)
+
+Arrival island map 1 (206,110): open the menu (X), Item, use the Tent. The capture dream (map 223) ends with Galuf alone in Castle Exdeath (map 225). Set Bat.Speed and Msg.Speed to 1 in Config first (saves a lot of time). Castle: map 263 event 1085 side room is a dead end; rescue chain 225 -> 230 -> 231 -> 226 (event 827 at (49,19)), then passages on map 230 (events 1214/1218), exit by event 1631 at map 225 (18,36) onto world 2 (160,156). Then Big Bridge area 315/316 (event 211, 1219, event 220 warps to world (99,45)), Regole 247, Kuza 307/308/309, 253/259, waterway 261 (event 1337 exit), Moogle Village 262 (flag 302), waterway event 235 (map 261 (37,15) facing down + A) to 270/269, Bal castle 265 (event 240), Quelb 281-283, Drakenvale 291.
