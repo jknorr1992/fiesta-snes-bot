@@ -198,7 +198,11 @@ class VeteranPolicy(TacticalPolicy):
             for c in e.conds:
                 if c[0] == 2 and not (m.hp < (c[2] | c[3] << 8)): ok = False
                 elif c[0] == 4 and c[2] == 0 and len(mons) > 1: ok = False        # "alone"
-            if ok: out += e.attacks
+            if ok:
+                out += e.attacks
+                for k in e.shows:                       # it may turn into another form: that form's attacks come with it
+                    if k < len(self.ids) and self.ids[k] is not None and self.ids[k] != mid:
+                        out += [a for f in self.B.script(self.ids[k]) if not f.reactive for a in f.attacks]
         return sorted(set(out)), mid
 
     def _scan(self, sim, party, mons):

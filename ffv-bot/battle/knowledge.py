@@ -30,7 +30,12 @@ class Entry:
     attacks: list                     # attack ids this entry can queue (all random choices)
     specials: list = field(default_factory=list)   # (cmd, a, b) for 0xFD 0xF2.. commands
     queued: int = 0                   # actions per turn when this entry fires (random_choice = 1)
+    set_id: int = 0                   # entries of one set are checked together; 0xFF closes a set
 
+    @property
+    def shows(self):
+        """Monster slots this entry can turn into (show_monster 0xF2: data2 is the bitmask of the forms it may take, high bit = slot 0)."""
+        return [k for c, a, b in self.specials if c == 0xF2 for k in range(8) if b & (0x80 >> k)]
     @property
     def reactive(self): return any(c[0] in REACTIVE for c in self.conds)
     @property
@@ -40,32 +45,38 @@ class Entry:
         return min(lim, key=lambda t: t[1]) if lim else None
 
 
-def decode_script(rom, monster_id):
+def _script_end(rom, monster_id):
+    """A script runs up to the start of the next one in the pointer table (a lone 0xFF only closes a set of entries)."""
+    starts = sorted({AI_BASE + (rom[AI_PTR + 2 * i] | rom[AI_PTR + 2 * i + 1] << 8) for i in range(384)})
     p = AI_BASE + (rom[AI_PTR + 2 * monster_id] | rom[AI_PTR + 2 * monster_id + 1] << 8)
-    entries = []
-    for _ in range(64):
-        if rom[p] == 0xFF: break
+    nxt = [x for x in starts if x > p]
+    return p, (nxt[0] if nxt else p + 0x200)
+
+
+def decode_script(rom, monster_id):
+    p, end = _script_end(rom, monster_id)
+    entries = []; set_id = 0
+    while p < end:
         conds = []
-        while rom[p] != 0xFE:
+        while p < end and rom[p] != 0xFE:
             conds.append(tuple(rom[p:p + 4])); p += 4
             if len(conds) > 8: return entries            # malformed
         p += 1
         attacks, specials, queued = [], [], 0
-        while rom[p] not in (0xFE, 0xFF):
+        while p < end and rom[p] not in (0xFE, 0xFF):
             b = rom[p]
             if b == 0xFD:
                 c = rom[p + 1]
                 if c < 0xF0:
                     attacks += [x for x in rom[p + 1:p + 4] if x < 0xFD]; queued += 1; p += 4
-                elif c == 0xF7:
-                    n = rom[p + 2]; specials.append((c, 0, 0)); p += 4 + n - 1 if n else 4
                 else:
-                    specials.append((c, rom[p + 2], rom[p + 3])); p += 4
-                    if c == 0xF1 and False: pass
+                    specials.append((c, rom[p + 2], rom[p + 3])); p += 4       # 0xF7 (no interrupt): header only, its actions follow as usual
             else:
                 attacks.append(b); queued += 1; p += 1
+        term = rom[p] if p < end else 0xFF
         p += 1
-        entries.append(Entry(conds, attacks, specials, queued))
+        entries.append(Entry(conds, attacks, specials, queued, set_id))
+        if term == 0xFF: set_id += 1
     return entries
 
 
@@ -169,4 +180,13 @@ def damage_range(w, d_mon, mon_slot, tgt_slot, atk, multi=False, crit=False):
             elif w[tb + O_WEAK] & el: a0 <<= 1; a1 <<= 1; defense = 0
         if multi: a0 >>= 1
         return (min(9999, max(0, a0 - defense) * m), min(9999, max(0, a1 - defense) * m))
+    if f == 0x2A:                                  # % of the target's max HP: Param1 element, Param2 sixteenths
+        frac = atk["raw"][6]; el = atk["raw"][5]
+        if el:
+            if w[tb + O_ABSORB] & el or w[tb + O_IMMUNE] & el: return (0, 0)
+            if w[tb + O_HALF] & el: frac >>= 1
+            elif w[tb + O_WEAK] & el: frac <<= 1
+        mx = w[tb + 0x08] | w[tb + 0x09] << 8
+        v = min(9999, max(1, mx * frac // 16))
+        return (v, v)
     return None
