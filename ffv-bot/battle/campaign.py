@@ -461,8 +461,8 @@ class Campaign:
         from scenario import run_battle
         from sim import BattleSim
         from policy import CHAR_SPELLS, SPELL_SLOT, SPELL_TABLE
-        if "_psim" not in self.__dict__:
-            self._psim = BattleSim(open(self.rom_path, "rb").read()); self._tp = TacticalPolicy(self.d)
+        if "_psim" not in self.__dict__: self._psim = BattleSim(open(self.rom_path, "rb").read())
+        if "_tp" not in self.__dict__: self._tp = TacticalPolicy(self.d)
         tp = self._tp
         names = self.members()
         f = self.variant({n: job for n in names})
