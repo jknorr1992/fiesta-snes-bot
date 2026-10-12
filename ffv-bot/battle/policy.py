@@ -82,7 +82,7 @@ class SmartPolicy:
 
 
 SPELL_TABLE = 0x110B80       # ROM: 8-byte spell records: flags, target, ?, MP cost, formula, ?, power, element
-EL_OFF = {"absorb": 0x30, "immune": 0x32, "weak": 0x34}      # battle CharStruct element defences (bit per element: 1 fire, 2 ice, 4 bolt, ...)
+EL_OFF = {"absorb": 0x30, "block": 0x31, "immune": 0x32, "half": 0x33, "weak": 0x34}      # battle CharStruct element defences (bit per element: 1 fire, 2 ice, 4 bolt, ...)
 BUFFS = ("Protect", "Shell", "Haste")                       # cast once on each member that can use it, in hard fights only
 ATTACK_FORMULA = 0x06                                       # damaging black magic (Fire/Ice/Bolt 1-3); Holy uses it too
 
@@ -144,6 +144,8 @@ class TacticalPolicy(SmartPolicy):
         # 5. attack magic with the element table
         best = None
         floor = 0 if self.hard else int(self.mp_floor * me.max_mp)
+        cmd = self._multi(sim, me, mons, floor)
+        if cmd is not None: return cmd
         for sp in self.attack_all:
             cost = self._known(sim, char, sp)
             if cost is None or cost > me.mp - floor: continue
@@ -163,6 +165,42 @@ class TacticalPolicy(SmartPolicy):
         pool = [m for m in mons if (m.i, 'fight') not in self.banned] or mons
         tgt = max(pool, key=self.priority)
         return Command.fight(tgt.i - 4)
+
+    def _multi(self, sim, me, mons, floor):
+        """An attack spell that can be cast on every enemy at once (flag 0x80 of its record) when that removes clearly more enemy HP than the
+        best single-target cast: each target takes half (the game's multi-target rule), so the veteran counts the damage a target can take
+        before it dies -- the lowest roll of the spell's power against its magic defence, Level * Magic / 256 + 4 -- never the next roll."""
+        if len(mons) < 2: return None
+        lvl, mag = me.level, sim.w[me.b + 0x2B]
+        mult = ((lvl * mag) >> 8) + 4
+        def low(sp, m, multi):
+            info = self.spell_info(sp); a = info["power"]; el = info["element"]; mdef = sim.w[m.b + 0x2F]
+            if el:
+                if self._mon_el(sim, m, "absorb") & el or self._mon_el(sim, m, "immune") & el or self._mon_el(sim, m, "block") & el: return None
+                if self._mon_el(sim, m, "half") & el: a >>= 1
+                elif self._mon_el(sim, m, "weak") & el: a <<= 1; mdef = 0
+            if multi: a >>= 1
+            return min(m.hp, max(0, a - mdef) * mult)
+        single = multi = None
+        for sp in self.attack_all:
+            cost = self._known(sim, me.i, sp)
+            if cost is None or cost > me.mp - floor: continue
+            can_all = bool(self.d.r[SPELL_TABLE + 8 * sp] & 0x80)
+            ones = [low(sp, m, False) for m in mons]
+            ones = [x for x in ones if x is not None]
+            if ones:
+                v = (max(ones), -cost)
+                if single is None or v > single: single = v
+            if not can_all or any((m.i, sp) in self.banned for m in mons): continue
+            alls = [low(sp, m, True) for m in mons]
+            if any(x is None for x in alls): continue               # one of them would absorb / shrug it off: not a spell for everybody
+            v = (sum(alls), -cost, sp)
+            if multi is None or v > multi: multi = v
+        if multi is None or multi[0] <= 0: return None
+        if single is not None and multi[0] < 1.25 * single[0]: return None
+        mask = 0
+        for m in mons: mask |= 0x80 >> (m.i - 4)
+        return Command(MAGIC_COMMAND, 0x20, mask, 0, multi[2])
 
     def _support(self, sim, char, party, me, mons):
         """Revive / heal / Potion exactly as SmartPolicy decides them; None when nothing is needed."""
