@@ -428,6 +428,9 @@ class Campaign:
                 if t and not any(s in t for s in SUBS): return t
             return None
         maps = {m for m in self.shops.maps if label(m) in visited}
+        if self.a.extra_towns:       # towns the route passes without a random fight: story map ids rise along the route
+            top = max(m for st in self.stages[:idx + 1] for m in st["maps"]) if any(st["maps"] for st in self.stages[:idx + 1]) else 0
+            maps |= {m for m in self.shops.maps if m <= top}
         stock = self.shops.stock(maps)
         reserve = self.shops.tent_price
         log = []
@@ -537,6 +540,7 @@ def main():
     ap.add_argument("--areas", default=os.path.join(ROOT, "data", "map_areas.json"))
     ap.add_argument("--shops", default=os.path.join(ROOT, "data", "shops_by_map.json"))
     ap.add_argument("--no-flee", dest="flee", action="store_false", help="never run away from a random fight that cannot be won flawlessly")
+    ap.add_argument("--extra-towns", action="store_true", help="shops of towns whose map ids lie below the furthest map reached are usable too (Carwen etc.)")
     ap.add_argument("--resume", action="store_true", help="continue from state.bin/state.json in --out (saved after every finished stage)")
     ap.add_argument("--list-stages", action="store_true", help="print the stages and their fights, then exit")
     ap.add_argument("--jobs-spec", help='JSON like {"Bartz": "Knight", "Lenna": "WhiteMage", "Galuf": "Monk", "Faris": "BlackMage"}')
