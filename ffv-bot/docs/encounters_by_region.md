@@ -19,9 +19,9 @@ Random battles: none
 Scripted battles:
 
 - event 1049, group 0, trigger at (10,45), on the simulated route:
-  - 100%  battle 438: Birostris x2 [80]
+  - 100%  battle 438 [boss]: Goblin x2 [336]
 - event 1053, group 0, trigger at (11,24), on the simulated route:
-  - 100%  battle 438: Birostris x2 [80]
+  - 100%  battle 438 [boss]: Goblin x2 [336]
 
 ### Map 18
 
@@ -89,7 +89,7 @@ Random battles: normal rate, group 132, background 10
 Scripted battles:
 
 - event 66, group 1, trigger at (50,16), on the simulated route:
-  - 100%  battle 439: Goblin [0], Kil{a8}r Bee [1]
+  - 100%  battle 439 [boss]: W{b2}gRaptor [256], W{b2}gRaptor [257]
 
 ### Map 30 (3F)
 
@@ -130,7 +130,7 @@ Random battles: normal rate, group 134, background 21
 Scripted battles:
 
 - event 119, group 2, trigger at (53,34), on the simulated route:
-  - 100%  battle 440: Nut Ea{a7}r [2]
+  - 100%  battle 440 [boss]: Kar{b9}bos [258]
 
 ## Ship Graveyard
 
@@ -146,7 +146,7 @@ Random battles: normal rate, group 137, background 25
 Scripted battles:
 
 - event 86, group 3, trigger at (47,25):
-  - 100%  battle 441: Steel Bat [4], Devil Crab [5]
+  - 100%  battle 441 [boss]: Siren [260], Siren [261]
 
 ### Map 44
 
@@ -228,7 +228,7 @@ Random battles: normal rate, group 146, background 16
 Scripted battles:
 
 - event 90, group 4, trigger at (31,12), on the simulated route:
-  - 100%  battle 442: Stroper [6], B{b9}ck Goblin [7]
+  - 100%  battle 442 [boss]: Forza [262], Magissa [263]
 
 ### Map 62 (North Mountain > Summit)
 
@@ -242,7 +242,7 @@ Random battles: normal rate, group 147, background 16
 Scripted battles:
 
 - event 1273, group 52, trigger at (15,13):
-  - 100%  battle 489: Wa{a7}r Buzz [74]
+  - 100%  battle 489 [boss]: Bahamut [330]
 
 ### Map 63
 
@@ -365,7 +365,7 @@ Random battles: none
 Scripted battles:
 
 - event 96, group 6, trigger at (8,15), on the simulated route:
-  - 100%  battle 443: White Snake [8]
+  - 100%  battle 443 [boss]: Galura [264]
 - event 494, group 51, npc at (4,3):
   - 100%  battle 488 [boss]: Gogo [329]
 
@@ -378,7 +378,7 @@ Random battles: none
 Scripted battles:
 
 - event 1211, group 18, npc at (17,16):
-  - 100%  battle 455: IceSoldier x6 [28]
+  - 100%  battle 455 [boss]: Pu{a6}bo{a6}s x6 [284]
 
 ### Map 120
 
@@ -397,7 +397,7 @@ Random battles: none
 Scripted battles:
 
 - event 44, group 0, trigger at (27,20), on the simulated route:
-  - 100%  battle 438: Birostris x2 [80]
+  - 100%  battle 438 [boss]: Goblin x2 [336]
 
 ## Meteor at Karnak
 
@@ -416,7 +416,7 @@ Random battles: none
 Scripted battles:
 
 - event 1210, group 17, npc at (18,52):
-  - 100%  battle 454: Elf Toad [27]
+  - 100%  battle 454 [boss]: Titan [283]
 
 ## Castle Karnak
 
@@ -427,7 +427,7 @@ Random battles: none
 Scripted battles:
 
 - event 114, group 8, trigger at (23,35), on the simulated route:
-  - 100%  battle 445: Devourer [82], Mandrake x3 [83], Fa{bb}{b1} Orc [81]
+  - 100%  battle 445 [boss]: Sergeant [338], Karnak x3 [339], I{a6}n C{b9}w [337]
 
 ### Map 132 (0F)
 
@@ -550,7 +550,7 @@ Random battles: none
 Scripted battles:
 
 - event 1111, group 7, trigger at (11,24), on the simulated route:
-  - 100%  battle 444: Mold Wind [9], ManiWizard [10], Magic Pot [11]
+  - 100%  battle 444 [boss]: LiquidF{b9}me [265], LiquidF{b9}me [266], LiquidF{b9}me [267]
 
 ### Map 207
 

@@ -82,20 +82,20 @@
         {
          "chance": 1.0,
          "battle": 438,
-         "boss": false,
+         "boss": true,
          "no_run": true,
          "monsters": [
           {
-           "id": 80,
-           "name": "Birostris",
+           "id": 336,
+           "name": "Goblin",
            "count": 2
           }
          ],
-         "flags": 192,
+         "flags": 32,
          "intro": 0,
          "flee": 128,
          "ap": 0,
-         "music": 0,
+         "music": 192,
          "raw": "008000c05050ffffffffffff0000c020"
         }
        ]
@@ -151,20 +151,20 @@
         {
          "chance": 1.0,
          "battle": 438,
-         "boss": false,
+         "boss": true,
          "no_run": true,
          "monsters": [
           {
-           "id": 80,
-           "name": "Birostris",
+           "id": 336,
+           "name": "Goblin",
            "count": 2
           }
          ],
-         "flags": 192,
+         "flags": 32,
          "intro": 0,
          "flee": 128,
          "ap": 0,
-         "music": 0,
+         "music": 192,
          "raw": "008000c05050ffffffffffff0000c020"
         }
        ]
@@ -653,25 +653,25 @@
         {
          "chance": 1.0,
          "battle": 439,
-         "boss": false,
+         "boss": true,
          "no_run": true,
          "monsters": [
           {
-           "id": 0,
-           "name": "Goblin",
+           "id": 256,
+           "name": "W{b2}gRaptor",
            "count": 1
           },
           {
-           "id": 1,
-           "name": "Kil{a8}r Bee",
+           "id": 257,
+           "name": "W{b2}gRaptor",
            "count": 1
           }
          ],
-         "flags": 8,
+         "flags": 32,
          "intro": 0,
          "flee": 128,
          "ap": 5,
-         "music": 0,
+         "music": 8,
          "raw": "008005800001ffffffffffff10000820"
         }
        ]
@@ -961,20 +961,20 @@
         {
          "chance": 1.0,
          "battle": 440,
-         "boss": false,
+         "boss": true,
          "no_run": true,
          "monsters": [
           {
-           "id": 2,
-           "name": "Nut Ea{a7}r",
+           "id": 258,
+           "name": "Kar{b9}bos",
            "count": 1
           }
          ],
-         "flags": 8,
+         "flags": 32,
          "intro": 0,
          "flee": 128,
          "ap": 5,
-         "music": 0,
+         "music": 8,
          "raw": "0080058002ffffffffffffff00000820"
         }
        ]
@@ -1115,25 +1115,25 @@
         {
          "chance": 1.0,
          "battle": 441,
-         "boss": false,
+         "boss": true,
          "no_run": true,
          "monsters": [
           {
-           "id": 4,
-           "name": "Steel Bat",
+           "id": 260,
+           "name": "Siren",
            "count": 1
           },
           {
-           "id": 5,
-           "name": "Devil Crab",
+           "id": 261,
+           "name": "Siren",
            "count": 1
           }
          ],
-         "flags": 8,
+         "flags": 32,
          "intro": 0,
          "flee": 128,
          "ap": 5,
-         "music": 0,
+         "music": 8,
          "raw": "008005800405ffffffffffff10000820"
         }
        ]
@@ -1909,25 +1909,25 @@
         {
          "chance": 1.0,
          "battle": 442,
-         "boss": false,
+         "boss": true,
          "no_run": true,
          "monsters": [
           {
-           "id": 6,
-           "name": "Stroper",
+           "id": 262,
+           "name": "Forza",
            "count": 1
           },
           {
-           "id": 7,
-           "name": "B{b9}ck Goblin",
+           "id": 263,
+           "name": "Magissa",
            "count": 1
           }
          ],
-         "flags": 8,
+         "flags": 32,
          "intro": 0,
          "flee": 128,
          "ap": 6,
-         "music": 0,
+         "music": 8,
          "raw": "008006400607ffffffffffff10000820"
         }
        ]
@@ -2054,20 +2054,20 @@
         {
          "chance": 1.0,
          "battle": 489,
-         "boss": false,
+         "boss": true,
          "no_run": true,
          "monsters": [
           {
-           "id": 74,
-           "name": "Wa{a7}r Buzz",
+           "id": 330,
+           "name": "Bahamut",
            "count": 1
           }
          ],
-         "flags": 8,
+         "flags": 96,
          "intro": 0,
          "flee": 128,
          "ap": 25,
-         "music": 0,
+         "music": 8,
          "raw": "008019804affffffffffffff00000860"
         }
        ]
@@ -3263,20 +3263,20 @@
         {
          "chance": 1.0,
          "battle": 443,
-         "boss": false,
+         "boss": true,
          "no_run": true,
          "monsters": [
           {
-           "id": 8,
-           "name": "White Snake",
+           "id": 264,
+           "name": "Galura",
            "count": 1
           }
          ],
-         "flags": 8,
+         "flags": 32,
          "intro": 0,
          "flee": 128,
          "ap": 5,
-         "music": 0,
+         "music": 8,
          "raw": "0080058008ffffffffffffff00000820"
         }
        ]
@@ -3309,11 +3309,11 @@
            "count": 1
           }
          ],
-         "flags": 48,
+         "flags": 96,
          "intro": 0,
          "flee": 128,
          "ap": 50,
-         "music": 0,
+         "music": 48,
          "raw": "0080328049ffffffffffffff00003060"
         }
        ]
@@ -3417,20 +3417,20 @@
         {
          "chance": 1.0,
          "battle": 455,
-         "boss": false,
+         "boss": true,
          "no_run": true,
          "monsters": [
           {
-           "id": 28,
-           "name": "IceSoldier",
+           "id": 284,
+           "name": "Pu{a6}bo{a6}s",
            "count": 6
           }
          ],
-         "flags": 8,
+         "flags": 96,
          "intro": 0,
          "flee": 128,
          "ap": 5,
-         "music": 0,
+         "music": 8,
          "raw": "008005fc1c1c1c1c1c1cffff00000860"
         }
        ]
@@ -3525,20 +3525,20 @@
         {
          "chance": 1.0,
          "battle": 438,
-         "boss": false,
+         "boss": true,
          "no_run": true,
          "monsters": [
           {
-           "id": 80,
-           "name": "Birostris",
+           "id": 336,
+           "name": "Goblin",
            "count": 2
           }
          ],
-         "flags": 192,
+         "flags": 32,
          "intro": 0,
          "flee": 128,
          "ap": 0,
-         "music": 0,
+         "music": 192,
          "raw": "008000c05050ffffffffffff0000c020"
         }
        ]
@@ -3624,20 +3624,20 @@
         {
          "chance": 1.0,
          "battle": 454,
-         "boss": false,
+         "boss": true,
          "no_run": true,
          "monsters": [
           {
-           "id": 27,
-           "name": "Elf Toad",
+           "id": 283,
+           "name": "Titan",
            "count": 1
           }
          ],
-         "flags": 8,
+         "flags": 32,
          "intro": 0,
          "flee": 128,
          "ap": 5,
-         "music": 0,
+         "music": 8,
          "raw": "008005801bffffffffffffff00000820"
         }
        ]
@@ -3689,30 +3689,30 @@
         {
          "chance": 1.0,
          "battle": 445,
-         "boss": false,
+         "boss": true,
          "no_run": true,
          "monsters": [
           {
-           "id": 82,
-           "name": "Devourer",
+           "id": 338,
+           "name": "Sergeant",
            "count": 1
           },
           {
-           "id": 83,
-           "name": "Mandrake",
+           "id": 339,
+           "name": "Karnak",
            "count": 3
           },
           {
-           "id": 81,
-           "name": "Fa{bb}{b1} Orc",
+           "id": 337,
+           "name": "I{a6}n C{b9}w",
            "count": 1
           }
          ],
-         "flags": 192,
+         "flags": 32,
          "intro": 0,
          "flee": 128,
          "ap": 3,
-         "music": 128,
+         "music": 192,
          "raw": "008003f05253535351ffffff1580c020"
         }
        ]
@@ -3749,11 +3749,11 @@
          "count": 3
         }
        ],
-       "flags": 192,
+       "flags": 0,
        "intro": 0,
        "flee": 1,
        "ap": 3,
-       "music": 0,
+       "music": 192,
        "raw": "000103f02d2f2f2fffffffff1500c000"
       },
       {
@@ -3773,11 +3773,11 @@
          "count": 3
         }
        ],
-       "flags": 192,
+       "flags": 0,
        "intro": 0,
        "flee": 1,
        "ap": 3,
-       "music": 0,
+       "music": 192,
        "raw": "000103f02d2f2f2fffffffff1500c000"
       },
       {
@@ -3792,11 +3792,11 @@
          "count": 1
         }
        ],
-       "flags": 192,
+       "flags": 0,
        "intro": 0,
        "flee": 5,
        "ap": 2,
-       "music": 0,
+       "music": 192,
        "raw": "000502802fffffffffffffff0000c000"
       },
       {
@@ -3811,11 +3811,11 @@
          "count": 1
         }
        ],
-       "flags": 192,
+       "flags": 0,
        "intro": 0,
        "flee": 5,
        "ap": 2,
-       "music": 0,
+       "music": 192,
        "raw": "000502802fffffffffffffff0000c000"
       }
      ]
@@ -3850,11 +3850,11 @@
          "count": 3
         }
        ],
-       "flags": 192,
+       "flags": 0,
        "intro": 0,
        "flee": 1,
        "ap": 3,
-       "music": 0,
+       "music": 192,
        "raw": "000103f02d2f2f2fffffffff1500c000"
       },
       {
@@ -3874,11 +3874,11 @@
          "count": 3
         }
        ],
-       "flags": 192,
+       "flags": 0,
        "intro": 0,
        "flee": 1,
        "ap": 3,
-       "music": 0,
+       "music": 192,
        "raw": "000103f02d2f2f2fffffffff1500c000"
       },
       {
@@ -3893,11 +3893,11 @@
          "count": 1
         }
        ],
-       "flags": 192,
+       "flags": 0,
        "intro": 0,
        "flee": 5,
        "ap": 2,
-       "music": 0,
+       "music": 192,
        "raw": "000502802fffffffffffffff0000c000"
       },
       {
@@ -3912,11 +3912,11 @@
          "count": 1
         }
        ],
-       "flags": 192,
+       "flags": 0,
        "intro": 0,
        "flee": 5,
        "ap": 2,
-       "music": 0,
+       "music": 192,
        "raw": "000502802fffffffffffffff0000c000"
       }
      ]
@@ -3951,11 +3951,11 @@
          "count": 3
         }
        ],
-       "flags": 192,
+       "flags": 0,
        "intro": 0,
        "flee": 1,
        "ap": 3,
-       "music": 0,
+       "music": 192,
        "raw": "000103f02d2f2f2fffffffff1500c000"
       },
       {
@@ -3975,11 +3975,11 @@
          "count": 3
         }
        ],
-       "flags": 192,
+       "flags": 0,
        "intro": 0,
        "flee": 1,
        "ap": 3,
-       "music": 0,
+       "music": 192,
        "raw": "000103f02d2f2f2fffffffff1500c000"
       },
       {
@@ -3994,11 +3994,11 @@
          "count": 1
         }
        ],
-       "flags": 192,
+       "flags": 0,
        "intro": 0,
        "flee": 5,
        "ap": 2,
-       "music": 0,
+       "music": 192,
        "raw": "000502802fffffffffffffff0000c000"
       },
       {
@@ -4013,11 +4013,11 @@
          "count": 1
         }
        ],
-       "flags": 192,
+       "flags": 0,
        "intro": 0,
        "flee": 5,
        "ap": 2,
-       "music": 0,
+       "music": 192,
        "raw": "000502802fffffffffffffff0000c000"
       }
      ]
@@ -4052,11 +4052,11 @@
          "count": 3
         }
        ],
-       "flags": 192,
+       "flags": 0,
        "intro": 0,
        "flee": 1,
        "ap": 3,
-       "music": 0,
+       "music": 192,
        "raw": "000103f02d2f2f2fffffffff1500c000"
       },
       {
@@ -4076,11 +4076,11 @@
          "count": 3
         }
        ],
-       "flags": 192,
+       "flags": 0,
        "intro": 0,
        "flee": 1,
        "ap": 3,
-       "music": 0,
+       "music": 192,
        "raw": "000103f02d2f2f2fffffffff1500c000"
       },
       {
@@ -4095,11 +4095,11 @@
          "count": 1
         }
        ],
-       "flags": 192,
+       "flags": 0,
        "intro": 0,
        "flee": 5,
        "ap": 2,
-       "music": 0,
+       "music": 192,
        "raw": "000502802fffffffffffffff0000c000"
       },
       {
@@ -4114,11 +4114,11 @@
          "count": 1
         }
        ],
-       "flags": 192,
+       "flags": 0,
        "intro": 0,
        "flee": 5,
        "ap": 2,
-       "music": 0,
+       "music": 192,
        "raw": "000502802fffffffffffffff0000c000"
       }
      ]
@@ -4309,7 +4309,7 @@
        "intro": 0,
        "flee": 70,
        "ap": 1,
-       "music": 80,
+       "music": 0,
        "raw": "004601802b2b2b2b2a2affff00500000"
       },
       {
@@ -4338,7 +4338,7 @@
        "intro": 0,
        "flee": 70,
        "ap": 2,
-       "music": 160,
+       "music": 0,
        "raw": "004602f0282b2b2b2a2affff15a00000"
       }
      ]
@@ -4382,7 +4382,7 @@
        "intro": 0,
        "flee": 70,
        "ap": 1,
-       "music": 160,
+       "music": 0,
        "raw": "004601e028282b2b2a2affff04a00000"
       },
       {
@@ -4411,7 +4411,7 @@
        "intro": 0,
        "flee": 70,
        "ap": 1,
-       "music": 160,
+       "music": 0,
        "raw": "004601c0292b2b2b2a2affff10a00000"
       },
       {
@@ -4440,7 +4440,7 @@
        "intro": 0,
        "flee": 70,
        "ap": 2,
-       "music": 160,
+       "music": 0,
        "raw": "004602f0282b2b2b2a2affff15a00000"
       },
       {
@@ -4464,7 +4464,7 @@
        "intro": 0,
        "flee": 70,
        "ap": 1,
-       "music": 80,
+       "music": 0,
        "raw": "004601802b2b2b2b2a2affff00500000"
       }
      ]
@@ -4508,7 +4508,7 @@
        "intro": 0,
        "flee": 70,
        "ap": 1,
-       "music": 160,
+       "music": 0,
        "raw": "004601c0292b2b2b2a2affff10a00000"
       },
       {
@@ -4561,7 +4561,7 @@
        "intro": 0,
        "flee": 70,
        "ap": 1,
-       "music": 160,
+       "music": 0,
        "raw": "004601c0292b2b2b2a2affff10a00000"
       },
       {
@@ -4648,7 +4648,7 @@
        "intro": 0,
        "flee": 70,
        "ap": 2,
-       "music": 160,
+       "music": 0,
        "raw": "004602f028282b2b2a2affff05a00000"
       },
       {
@@ -4672,7 +4672,7 @@
        "intro": 0,
        "flee": 70,
        "ap": 1,
-       "music": 80,
+       "music": 0,
        "raw": "004601802b2b2b2b2a2affff00500000"
       },
       {
@@ -4701,7 +4701,7 @@
        "intro": 0,
        "flee": 70,
        "ap": 2,
-       "music": 160,
+       "music": 0,
        "raw": "004602f0282b2b2b2a2affff15a00000"
       }
      ]
@@ -4741,30 +4741,30 @@
         {
          "chance": 1.0,
          "battle": 444,
-         "boss": false,
+         "boss": true,
          "no_run": true,
          "monsters": [
           {
-           "id": 9,
-           "name": "Mold Wind",
+           "id": 265,
+           "name": "LiquidF{b9}me",
            "count": 1
           },
           {
-           "id": 10,
-           "name": "ManiWizard",
+           "id": 266,
+           "name": "LiquidF{b9}me",
            "count": 1
           },
           {
-           "id": 11,
-           "name": "Magic Pot",
+           "id": 267,
+           "name": "LiquidF{b9}me",
            "count": 1
           }
          ],
-         "flags": 8,
+         "flags": 96,
          "intro": 0,
          "flee": 128,
          "ap": 6,
-         "music": 0,
+         "music": 8,
          "raw": "00800680090a0bffffffffff00000860"
         }
        ]
@@ -4952,7 +4952,7 @@
        "intro": 2,
        "flee": 80,
        "ap": 4,
-       "music": 144,
+       "music": 0,
        "raw": "0250048031323334333231ff18900000"
       }
      ]
@@ -4995,11 +4995,11 @@
            "count": 1
           }
          ],
-         "flags": 8,
+         "flags": 64,
          "intro": 0,
          "flee": 128,
          "ap": 5,
-         "music": 0,
+         "music": 8,
          "raw": "0080058035ffffffffffffff00000840"
         }
        ]
@@ -5106,7 +5106,7 @@
        "intro": 2,
        "flee": 80,
        "ap": 4,
-       "music": 144,
+       "music": 0,
        "raw": "0250048031323334333231ff18900000"
       }
      ]
@@ -5155,11 +5155,11 @@
            "count": 1
           }
          ],
-         "flags": 8,
+         "flags": 65,
          "intro": 2,
          "flee": 128,
          "ap": 7,
-         "music": 0,
+         "music": 8,
          "raw": "0280078020ffffffffffffff18000841"
         }
        ]
@@ -5268,7 +5268,7 @@
          "intro": 2,
          "flee": 80,
          "ap": 4,
-         "music": 144,
+         "music": 0,
          "raw": "0250048031323334333231ff18900000"
         }
        ]
@@ -5395,7 +5395,7 @@
        "intro": 2,
        "flee": 80,
        "ap": 4,
-       "music": 144,
+       "music": 0,
        "raw": "0250048031323334333231ff18900000"
       }
      ]
@@ -11230,29 +11230,6 @@
    "creature": 128,
    "name_bytes": "6c7a87827682937a8b7d"
   },
-  "11": {
-   "id": 11,
-   "name": "Magic Pot",
-   "speed": 2,
-   "attack": 70,
-   "attack_mult": 25,
-   "evade": 95,
-   "defense": 255,
-   "magic": 90,
-   "mdefense": 255,
-   "mevade": 99,
-   "hp": 65255,
-   "mp": 50000,
-   "exp": 10000,
-   "gil": 10000,
-   "level": 91,
-   "status": "00006000",
-   "weak": 0,
-   "absorb": 0,
-   "immune": 0,
-   "creature": 32,
-   "name_bytes": "6c7a80827c966f888dff"
-  },
   "12": {
    "id": 12,
    "name": "Sucker",
@@ -12242,121 +12219,6 @@
    "creature": 36,
    "name_bytes": "63a3628182867e8b7aff"
   },
-  "74": {
-   "id": 74,
-   "name": "Wa{a7}r Buzz",
-   "speed": 25,
-   "attack": 37,
-   "attack_mult": 5,
-   "evade": 0,
-   "defense": 0,
-   "magic": 0,
-   "mdefense": 5,
-   "mevade": 0,
-   "hp": 600,
-   "mp": 50,
-   "exp": 330,
-   "gil": 222,
-   "level": 26,
-   "status": "00000000",
-   "weak": 4,
-   "absorb": 128,
-   "immune": 0,
-   "creature": 4,
-   "name_bytes": "767aa78b96618e9393ff"
-  },
-  "80": {
-   "id": 80,
-   "name": "Birostris",
-   "speed": 25,
-   "attack": 35,
-   "attack_mult": 6,
-   "evade": 0,
-   "defense": 0,
-   "magic": 0,
-   "mdefense": 5,
-   "mevade": 0,
-   "hp": 1000,
-   "mp": 500,
-   "exp": 353,
-   "gil": 240,
-   "level": 27,
-   "status": "00000000",
-   "weak": 0,
-   "absorb": 128,
-   "immune": 0,
-   "creature": 0,
-   "name_bytes": "61af888c8d8b828cffff"
-  },
-  "81": {
-   "id": 81,
-   "name": "Fa{bb}{b1} Orc",
-   "speed": 25,
-   "attack": 36,
-   "attack_mult": 7,
-   "evade": 0,
-   "defense": 0,
-   "magic": 0,
-   "mdefense": 5,
-   "mevade": 0,
-   "hp": 1000,
-   "mp": 1000,
-   "exp": 385,
-   "gil": 243,
-   "level": 28,
-   "status": "88000000",
-   "weak": 0,
-   "absorb": 16,
-   "immune": 32,
-   "creature": 0,
-   "name_bytes": "657abbb1966e8b7cffff"
-  },
-  "82": {
-   "id": 82,
-   "name": "Devourer",
-   "speed": 25,
-   "attack": 37,
-   "attack_mult": 7,
-   "evade": 0,
-   "defense": 0,
-   "magic": 0,
-   "mdefense": 5,
-   "mevade": 0,
-   "hp": 1000,
-   "mp": 100,
-   "exp": 385,
-   "gil": 246,
-   "level": 28,
-   "status": "00000000",
-   "weak": 0,
-   "absorb": 4,
-   "immune": 0,
-   "creature": 0,
-   "name_bytes": "637e8f888e8b7e8bffff"
-  },
-  "83": {
-   "id": 83,
-   "name": "Mandrake",
-   "speed": 25,
-   "attack": 36,
-   "attack_mult": 7,
-   "evade": 0,
-   "defense": 0,
-   "magic": 0,
-   "mdefense": 5,
-   "mevade": 0,
-   "hp": 1000,
-   "mp": 100,
-   "exp": 385,
-   "gil": 249,
-   "level": 28,
-   "status": "00000000",
-   "weak": 1,
-   "absorb": 0,
-   "immune": 0,
-   "creature": 1,
-   "name_bytes": "6c7a877d8b7a847effff"
-  },
   "217": {
    "id": 217,
    "name": "Sahag{b2}",
@@ -12426,6 +12288,305 @@
    "creature": 0,
    "name_bytes": "727e7a96608f828cffff"
   },
+  "256": {
+   "id": 256,
+   "name": "W{b2}gRaptor",
+   "speed": 25,
+   "attack": 7,
+   "attack_mult": 2,
+   "evade": 0,
+   "defense": 0,
+   "magic": 1,
+   "mdefense": 10,
+   "mevade": 10,
+   "hp": 250,
+   "mp": 25,
+   "exp": 0,
+   "gil": 0,
+   "level": 1,
+   "status": "88000000",
+   "weak": 0,
+   "absorb": 0,
+   "immune": 0,
+   "creature": 32,
+   "name_bytes": "76b280717a898d888bff"
+  },
+  "257": {
+   "id": 257,
+   "name": "W{b2}gRaptor",
+   "speed": 25,
+   "attack": 7,
+   "attack_mult": 3,
+   "evade": 40,
+   "defense": 20,
+   "magic": 1,
+   "mdefense": 10,
+   "mevade": 10,
+   "hp": 250,
+   "mp": 0,
+   "exp": 0,
+   "gil": 0,
+   "level": 2,
+   "status": "88000000",
+   "weak": 0,
+   "absorb": 0,
+   "immune": 0,
+   "creature": 32,
+   "name_bytes": "76b280717a898d888bff"
+  },
+  "258": {
+   "id": 258,
+   "name": "Kar{b9}bos",
+   "speed": 30,
+   "attack": 10,
+   "attack_mult": 4,
+   "evade": 0,
+   "defense": 0,
+   "magic": 0,
+   "mdefense": 10,
+   "mevade": 0,
+   "hp": 650,
+   "mp": 100,
+   "exp": 0,
+   "gil": 0,
+   "level": 5,
+   "status": "00000000",
+   "weak": 4,
+   "absorb": 0,
+   "immune": 0,
+   "creature": 32,
+   "name_bytes": "6a7a8bb97b888cffffff"
+  },
+  "260": {
+   "id": 260,
+   "name": "Siren",
+   "speed": 35,
+   "attack": 15,
+   "attack_mult": 6,
+   "evade": 0,
+   "defense": 0,
+   "magic": 0,
+   "mdefense": 20,
+   "mevade": 0,
+   "hp": 900,
+   "mp": 200,
+   "exp": 0,
+   "gil": 0,
+   "level": 2,
+   "status": "00000000",
+   "weak": 0,
+   "absorb": 0,
+   "immune": 0,
+   "creature": 160,
+   "name_bytes": "72828b7e87ffffffffff"
+  },
+  "261": {
+   "id": 261,
+   "name": "Siren",
+   "speed": 35,
+   "attack": 14,
+   "attack_mult": 8,
+   "evade": 0,
+   "defense": 12,
+   "magic": 0,
+   "mdefense": 0,
+   "mevade": 0,
+   "hp": 900,
+   "mp": 200,
+   "exp": 0,
+   "gil": 0,
+   "level": 2,
+   "status": "00000000",
+   "weak": 1,
+   "absorb": 8,
+   "immune": 0,
+   "creature": 161,
+   "name_bytes": "72828b7e87ffffffffff"
+  },
+  "262": {
+   "id": 262,
+   "name": "Forza",
+   "speed": 37,
+   "attack": 14,
+   "attack_mult": 9,
+   "evade": 0,
+   "defense": 3,
+   "magic": 0,
+   "mdefense": 5,
+   "mevade": 0,
+   "hp": 850,
+   "mp": 100,
+   "exp": 0,
+   "gil": 0,
+   "level": 8,
+   "status": "00000000",
+   "weak": 0,
+   "absorb": 0,
+   "immune": 0,
+   "creature": 160,
+   "name_bytes": "65888b937affffffffff"
+  },
+  "263": {
+   "id": 263,
+   "name": "Magissa",
+   "speed": 30,
+   "attack": 14,
+   "attack_mult": 5,
+   "evade": 0,
+   "defense": 0,
+   "magic": 1,
+   "mdefense": 0,
+   "mevade": 0,
+   "hp": 650,
+   "mp": 200,
+   "exp": 0,
+   "gil": 0,
+   "level": 8,
+   "status": "00000000",
+   "weak": 0,
+   "absorb": 0,
+   "immune": 0,
+   "creature": 128,
+   "name_bytes": "6c7a80828c8c7affffff"
+  },
+  "264": {
+   "id": 264,
+   "name": "Galura",
+   "speed": 31,
+   "attack": 15,
+   "attack_mult": 9,
+   "evade": 0,
+   "defense": 7,
+   "magic": 0,
+   "mdefense": 4,
+   "mevade": 0,
+   "hp": 1200,
+   "mp": 100,
+   "exp": 0,
+   "gil": 0,
+   "level": 3,
+   "status": "00000000",
+   "weak": 0,
+   "absorb": 0,
+   "immune": 0,
+   "creature": 4,
+   "name_bytes": "667a858e8b7affffffff"
+  },
+  "265": {
+   "id": 265,
+   "name": "LiquidF{b9}me",
+   "speed": 35,
+   "attack": 18,
+   "attack_mult": 5,
+   "evade": 20,
+   "defense": 0,
+   "magic": 10,
+   "mdefense": 15,
+   "mevade": 0,
+   "hp": 3000,
+   "mp": 100,
+   "exp": 0,
+   "gil": 0,
+   "level": 19,
+   "status": "00000000",
+   "weak": 2,
+   "absorb": 65,
+   "immune": 136,
+   "creature": 0,
+   "name_bytes": "6b828a8e827d65b9867e"
+  },
+  "266": {
+   "id": 266,
+   "name": "LiquidF{b9}me",
+   "speed": 35,
+   "attack": 18,
+   "attack_mult": 5,
+   "evade": 10,
+   "defense": 0,
+   "magic": 30,
+   "mdefense": 30,
+   "mevade": 0,
+   "hp": 3000,
+   "mp": 30,
+   "exp": 0,
+   "gil": 0,
+   "level": 19,
+   "status": "00000000",
+   "weak": 2,
+   "absorb": 65,
+   "immune": 254,
+   "creature": 32,
+   "name_bytes": "6b828a8e827d65b9867e"
+  },
+  "267": {
+   "id": 267,
+   "name": "LiquidF{b9}me",
+   "speed": 35,
+   "attack": 18,
+   "attack_mult": 5,
+   "evade": 30,
+   "defense": 0,
+   "magic": 20,
+   "mdefense": 15,
+   "mevade": 0,
+   "hp": 3000,
+   "mp": 50,
+   "exp": 0,
+   "gil": 0,
+   "level": 19,
+   "status": "00000000",
+   "weak": 2,
+   "absorb": 65,
+   "immune": 136,
+   "creature": 0,
+   "name_bytes": "6b828a8e827d65b9867e"
+  },
+  "283": {
+   "id": 283,
+   "name": "Titan",
+   "speed": 25,
+   "attack": 45,
+   "attack_mult": 7,
+   "evade": 10,
+   "defense": 10,
+   "magic": 0,
+   "mdefense": 0,
+   "mevade": 0,
+   "hp": 2500,
+   "mp": 2000,
+   "exp": 0,
+   "gil": 0,
+   "level": 1,
+   "status": "00000000",
+   "weak": 0,
+   "absorb": 32,
+   "immune": 0,
+   "creature": 160,
+   "name_bytes": "73957a87ffffffffffff"
+  },
+  "284": {
+   "id": 284,
+   "name": "Pu{a6}bo{a6}s",
+   "speed": 20,
+   "attack": 45,
+   "attack_mult": 7,
+   "evade": 0,
+   "defense": 0,
+   "magic": 10,
+   "mdefense": 0,
+   "mevade": 0,
+   "hp": 1500,
+   "mp": 100,
+   "exp": 0,
+   "gil": 0,
+   "level": 22,
+   "status": "00000000",
+   "weak": 0,
+   "absorb": 0,
+   "immune": 0,
+   "creature": 0,
+   "name_bytes": "6f8ea67b88a68cffffff"
+  },
   "329": {
    "id": 329,
    "name": "Gogo",
@@ -12448,6 +12609,121 @@
    "immune": 128,
    "creature": 160,
    "name_bytes": "66888088ffffffffffff"
+  },
+  "330": {
+   "id": 330,
+   "name": "Bahamut",
+   "speed": 40,
+   "attack": 69,
+   "attack_mult": 16,
+   "evade": 5,
+   "defense": 10,
+   "magic": 20,
+   "mdefense": 20,
+   "mevade": 33,
+   "hp": 40000,
+   "mp": 10000,
+   "exp": 0,
+   "gil": 0,
+   "level": 99,
+   "status": "88000000",
+   "weak": 0,
+   "absorb": 0,
+   "immune": 32,
+   "creature": 32,
+   "name_bytes": "617a817a868e8dffffff"
+  },
+  "336": {
+   "id": 336,
+   "name": "Goblin",
+   "speed": 10,
+   "attack": 5,
+   "attack_mult": 1,
+   "evade": 0,
+   "defense": 0,
+   "magic": 0,
+   "mdefense": 0,
+   "mevade": 0,
+   "hp": 1,
+   "mp": 2,
+   "exp": 3,
+   "gil": 10,
+   "level": 2,
+   "status": "00000000",
+   "weak": 0,
+   "absorb": 0,
+   "immune": 0,
+   "creature": 0,
+   "name_bytes": "66887b9787ffffffffff"
+  },
+  "337": {
+   "id": 337,
+   "name": "I{a6}n C{b9}w",
+   "speed": 40,
+   "attack": 21,
+   "attack_mult": 8,
+   "evade": 0,
+   "defense": 20,
+   "magic": 1,
+   "mdefense": 10,
+   "mevade": 10,
+   "hp": 900,
+   "mp": 150,
+   "exp": 40,
+   "gil": 100,
+   "level": 39,
+   "status": "00000000",
+   "weak": 0,
+   "absorb": 0,
+   "immune": 0,
+   "creature": 0,
+   "name_bytes": "68a6879662b990ffffff"
+  },
+  "338": {
+   "id": 338,
+   "name": "Sergeant",
+   "speed": 20,
+   "attack": 7,
+   "attack_mult": 2,
+   "evade": 0,
+   "defense": 0,
+   "magic": 5,
+   "mdefense": 10,
+   "mevade": 10,
+   "hp": 1000,
+   "mp": 25,
+   "exp": 40,
+   "gil": 100,
+   "level": 0,
+   "status": "00000000",
+   "weak": 0,
+   "absorb": 0,
+   "immune": 0,
+   "creature": 0,
+   "name_bytes": "727e8b807e7a878dffff"
+  },
+  "339": {
+   "id": 339,
+   "name": "Karnak",
+   "speed": 10,
+   "attack": 18,
+   "attack_mult": 4,
+   "evade": 0,
+   "defense": 0,
+   "magic": 0,
+   "mdefense": 0,
+   "mevade": 20,
+   "hp": 140,
+   "mp": 25,
+   "exp": 140,
+   "gil": 141,
+   "level": 19,
+   "status": "00000000",
+   "weak": 0,
+   "absorb": 0,
+   "immune": 0,
+   "creature": 4,
+   "name_bytes": "6a7a8b877a84ffffffff"
   }
  }
 }

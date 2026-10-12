@@ -66,12 +66,12 @@ class GameData:
     def battle(self, i):
         """Battle property record (index 0-511)."""
         b = BATTLE_PROP + 16 * (i & 0x1FF); r = self.r
-        flags = r[b + 14]; boss = bool(flags & 0x20)
+        flags = r[b + 15]; boss = bool(flags & 0x20)
         mons = [r[b + 4 + k] for k in range(8)]
         ids = [(m + (256 if boss else 0)) if m != 0xFF else None for m in mons]
         return dict(id=i, intro=r[b], flee=r[b + 1], ap=r[b + 2], visible=r[b + 3], monster_ids=ids,
                     monsters=[self.monster_name(m) if m is not None else None for m in ids],
-                    music=r[b + 13], flags=flags, boss=boss, no_run=bool(r[b + 1] & 0x80), raw=bytes(r[b:b + 16]).hex())
+                    music=r[b + 14], flags=flags, boss=boss, no_run=bool(r[b + 1] & 0x80), raw=bytes(r[b:b + 16]).hex())
     def battle_summary(self, i):
         b = self.battle(i)
         return f"battle {i:#05x}: " + ", ".join(m for m in b["monsters"] if m) + (" [boss]" if b["boss"] else "")

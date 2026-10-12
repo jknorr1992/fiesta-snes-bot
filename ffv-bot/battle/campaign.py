@@ -29,7 +29,7 @@ from multiprocessing import Pool
 from data import GameData
 from field import Field, Character, FIELD_CHAR, CHAR_SIZE, RNG_SEED, FIELD_ITEMS, FIELD_QTY
 from party import Catalog, _norm
-from policy import SmartPolicy, FleePolicy
+from policy import SmartPolicy, FleePolicy, TacticalPolicy
 from sim import L, R, Command
 
 TENT = "Tent"
@@ -40,20 +40,25 @@ SLOT_NAMES = ("Bartz", "Lenna", "Galuf", "Faris")
 
 # ------------------------------------------------------------------ battle workers
 _W = {}
-def _init(rom_path):
+def _init(rom_path, policy="tactical"):
     from sim import BattleSim
     rom = open(rom_path, "rb").read()
-    _W["sim"] = BattleSim(rom); _W["data"] = GameData(rom)
+    _W["sim"] = BattleSim(rom); _W["data"] = GameData(rom); _W["policy"] = policy
+
+def _policy(d, enc):
+    if _W.get("policy") == "smart": return SmartPolicy(d)
+    b = d.battle(enc)
+    return TacticalPolicy(d, hard=bool(b["no_run"] or b["boss"]))
 
 def _run(job):
     from scenario import run_battle
     wram, enc, bg, seed, mode = job
     d = _W["data"]
     w = bytearray(wram); w[RNG_SEED] = seed & 0xFF
-    pol = SmartPolicy(d)
+    pol = None
     for attempt in range(4):             # a rare sim deadlock (direct command raced a status change) is retried on the next seed; counted in `stalls`
         w[RNG_SEED] = (seed + attempt) & 0xFF
-        pol = FleePolicy() if mode == "flee" else SmartPolicy(d)
+        pol = FleePolicy() if mode == "flee" else _policy(d, enc)
         _W["sim"].hold = (L | R) if mode == "flee" else 0           # running away = holding L+R
         r = run_battle(bytes(w), enc, bg, policy=pol, max_frames=40000, sim=_W["sim"], keep_wram=True)
         _W["sim"].hold = 0
@@ -119,9 +124,9 @@ def item_price(shops, d, i):
             if it["id"] == i and sh["type"] in (1, 2): return it["price"]
     return 0
 
-SPELL_VALUE = {"Cure": 40, "Cure2": 70, "Cure3": 110, "Fire": 30, "Ice": 30, "Bolt": 30, "Fire2": 60, "Ice2": 60, "Bolt2": 60, "Fire3": 100, "Ice3": 100, "Bolt3": 100}
+SPELL_VALUE = {"Protect": 45, "Life": 55, "Cure": 60, "Cure2": 70, "Cure3": 110, "Fire": 30, "Ice": 30, "Bolt": 30, "Fire2": 60, "Ice2": 60, "Bolt2": 60, "Fire3": 100, "Ice3": 100, "Bolt3": 100}
 
-def shop(state, stock, shops, d, reserve, jobs, log):
+def shop(state, stock, shops, d, reserve, jobs, log, elem=None):
     """Greedy: repeatedly make the purchase (equipment upgrade for a member, or a spell for a white/black mage) with the best
     (power gain)/(net gil) that the money allows, keeping `reserve` gil.  Equipment gain = gear_score difference; spells have fixed values."""
     price_of = {**stock["weapon"], **stock["armor"]}
@@ -148,7 +153,10 @@ def shop(state, stock, shops, d, reserve, jobs, log):
             if sp in have or nm not in SPELL_VALUE or icon not in ("white", "black"): continue
             if ("WhiteMage" if icon == "white" else "BlackMage") not in jobs.values(): continue
             if state.gil - price < reserve: continue
-            if best is None or SPELL_VALUE[nm] / price > best[0]: best = (SPELL_VALUE[nm] / price, "spell", sp, nm, price)
+            val = SPELL_VALUE[nm]
+            if elem and icon == "black":                      # an element the coming monsters are weak to is worth more; one they absorb / resist, less
+                val *= 1 + elem.get(d.r[0x110B80 + 8 * sp + 7], 0)
+            if best is None or val / price > best[0]: best = (val / price, "spell", sp, nm, price)
         if not best: break
         if best[1] == "spell":
             _, _, sp, nm, price = best
@@ -273,7 +281,7 @@ class Campaign:
         self.stages = build_stages(a.encounters, a.reached, a.areas, a.steps_per_map)
         self.jobs = dict(DEFAULT_JOBS)
         if a.jobs_spec: self.jobs.update(json.load(open(a.jobs_spec)))
-        self.pool = Pool(a.jobs, initializer=_init, initargs=(a.rom,))
+        self.pool = Pool(a.jobs, initializer=_init, initargs=(a.rom, a.policy))
         self.fight_log = []; self.log = []; self.t0 = time.time(); self.fights_run = 0; self.tents = 0
         os.makedirs(a.out, exist_ok=True)
         self.state = self.new_state()
@@ -378,6 +386,13 @@ class Campaign:
     def fight(self, enc, bg, label, runs, scripted=False):
         """One fight as a batch.  Returns (counted, summary).  Advances self.state to the batch's average result when it counts.
         A random fight that cannot be won flawlessly may be run away from (hold L+R) if that works 95% of the time without a death."""
+        b = self.d.battle(enc)
+        if self.a.flee_first and not scripted and not b["no_run"] and not b["boss"]:
+            fl = self.batch(enc, bg, runs, "flee"); self.fights_run += 1          # least experience: run from every fight that can be run from safely
+            ok = [r for r in fl if r["flawless"]]
+            if len(ok) / len(fl) >= self.a.flawless:
+                info = dict(battle=enc, name=self.d.battle_summary(enc).split(": ", 1)[-1], rate=0, flee_rate=round(len(ok) / len(fl), 3), map=str(label), fled=True)
+                info["exp"] = self.adopt(ok); return True, info
         res = self.batch(enc, bg, runs)
         self.fights_run += 1
         flawless = [r for r in res if r["flawless"]]
@@ -435,9 +450,23 @@ class Campaign:
         stock = self.shops.stock(maps)
         reserve = self.shops.tent_price
         log = []
-        shop(self.state, stock, self.shops, self.d, reserve, self.jobs if self.jobs_unlocked else {}, log)
+        shop(self.state, stock, self.shops, self.d, reserve, self.jobs if self.jobs_unlocked else {}, log, self.element_weights(idx))
         self.stock_potions(stock, reserve, log)
         for l in log: self.say("  bought: " + l)
+
+    def element_weights(self, idx):
+        """{element bit: bonus in -0.5..+1.5} from the monsters of this stage and the next three (bosses count six-fold: the spells are bought for them): what they are weak to / absorb."""
+        score = {1: 0.0, 2: 0.0, 4: 0.0}; tot = 0.0
+        for st in self.stages[idx:idx + 4]:
+            for enc, _bg, _l, scripted in schedule(st):
+                b = self.d.battle(enc); w = 6.0 if (scripted or b["boss"]) else 1.0
+                for mid in b["monster_ids"]:
+                    if mid is None: continue
+                    m = self.d.monster(mid); tot += w
+                    for bit in score:
+                        if m["weak"] & bit: score[bit] += w
+                        if (m["absorb"] | m["immune"]) & bit: score[bit] -= w
+        return {bit: max(-0.5, min(1.5, 2.0 * v / tot)) for bit, v in score.items()} if tot else None
 
     def stock_potions(self, stock, reserve, log):
         """Spare gil (above two Tents) goes to Potions, up to 20, from an item shop of a visited region."""
@@ -471,7 +500,7 @@ class Campaign:
             j = json.load(open(sj)); idx = j["stage"] + 1; self.jobs_unlocked = j["jobs_unlocked"]; self.faris_in = j["faris_in"]; self.tents = j["tents"]
             self.state = Field.from_wram(open(os.path.join(self.a.out, "state.bin"), "rb").read(), self.d)
             self.say(f"resumed after stage {idx - 1} | {self.summary_line()}")
-        while idx < len(self.stages):
+        while idx < len(self.stages) and (self.a.until is None or idx <= self.a.until):
             st = self.stages[idx]; self.cur_idx = idx
             label = st["name"] if st["kind"] == "local" else "world map " + ",".join(f"{w}:{bx},{by}" for (w, bx, by) in st["world"])
             self.say(f"== stage {idx}: {label} (steps {st['steps'][0]}-{st['steps'][-1]}), {len(schedule(st))} fights | {self.summary_line()}")
@@ -542,6 +571,9 @@ def main():
     ap.add_argument("--areas", default=os.path.join(ROOT, "data", "map_areas.json"))
     ap.add_argument("--shops", default=os.path.join(ROOT, "data", "shops_by_map.json"))
     ap.add_argument("--no-flee", dest="flee", action="store_false", help="never run away from a random fight that cannot be won flawlessly")
+    ap.add_argument("--flee-first", action="store_true", help="run away from every runnable random fight that can be escaped flawlessly (95%%); fight the rest")
+    ap.add_argument("--until", type=int, default=None, help="stop after finishing this stage index (--list-stages shows them)")
+    ap.add_argument("--policy", choices=("tactical", "smart"), default="tactical", help="battle policy (policy.py)")
     ap.add_argument("--extra-towns", action="store_true", help="shops of towns whose map ids lie below the furthest map reached are usable too (Carwen etc.)")
     ap.add_argument("--resume", action="store_true", help="continue from state.bin/state.json in --out (saved after every finished stage)")
     ap.add_argument("--list-stages", action="store_true", help="print the stages and their fights, then exit")

@@ -7,7 +7,7 @@
   * anybody else, or a caster out of MP, attacks the first living monster
   * with no healer, Potions go to an ally below `potion_below`
 It records whether any party member was ever seen dead (`died`), so the campaign can demand a flawless win."""
-from sim import Command, CHAR, ACTIVE
+from sim import Command, CHAR, ACTIVE, CMD_FIGHT as CMD_FIGHT_ID
 
 MAGIC_COMMAND = 0x2C
 CHAR_SPELLS = 0x2D34                 # battle RAM: CharSpells per character (650 bytes): ID[130], Level[130], MP[130], Targetting[130], Flags[130]
@@ -77,6 +77,92 @@ class SmartPolicy:
             if cost is not None and cost <= me.mp and living_mon:
                 return Command(MAGIC_COMMAND, 0x20, Command.monster_mask(target), 0, sp)
         return Command.fight(target)
+
+
+SPELL_TABLE = 0x110B80       # ROM: 8-byte spell records: flags, target, ?, MP cost, formula, ?, power, element
+EL_OFF = {"absorb": 0x30, "immune": 0x32, "weak": 0x34}      # battle CharStruct element defences (bit per element: 1 fire, 2 ice, 4 bolt, ...)
+BUFFS = ("Protect", "Shell", "Haste")                       # cast once on each member that can use it, in hard fights only
+ATTACK_FORMULA = 0x06                                       # damaging black magic (Fire/Ice/Bolt 1-3); Holy uses it too
+
+class TacticalPolicy(SmartPolicy):
+    """SmartPolicy plus what a careful player does:
+      * revive first, then heal (Cure sized to the gap), then (hard fights) buff once: Protect / Shell / Haste;
+      * attack magic by the monsters' real element table (read live from battle RAM): weakness x2, never absorbed / immune elements;
+        the cheapest spell that is weak-hitting is preferred in ordinary fights, the strongest one in hard fights (boss, no-run);
+        ordinary fights keep `mp_floor` of the caster's MP for healing / the next fights;
+      * physical hits go to the living monster with the fewest HP (focus fire, no overkill spreading);
+      * a character who can only fight, or has no worthwhile spell, attacks."""
+    def __init__(self, data, hard=False, mp_floor=0.3, **kw):
+        super().__init__(data, **kw)
+        self.hard = hard; self.mp_floor = mp_floor
+        names = {data.spell_name(i): i for i in range(96) if data.spell_name(i)}
+        self.buff_ids = [names[n] for n in BUFFS if n in names]
+        self.attack_all = [i for i in range(36, 54) if data.spell_icon(i) == "black" and data.r[SPELL_TABLE + 8 * i + 4] == ATTACK_FORMULA]
+        self.buffed = set(); self.last_hp = {}; self.max_hit = 0
+
+    def spell_info(self, sp):
+        o = SPELL_TABLE + 8 * sp; r = self.d.r
+        return dict(mp=r[o + 3], power=r[o + 6], element=r[o + 7])
+
+    def _cure_reserve(self, sim, char):
+        costs = [self._known(sim, char, sp) for sp in self.heal_ids]
+        costs = [x for x in costs if x is not None]
+        return min(costs) if costs else 0
+
+    def _mon_el(self, sim, m, which): return sim.w[m.b + EL_OFF[which]]
+
+    def __call__(self, sim, char):
+        party = sim.party; me = party[char]
+        if any(c.dead for c in party): self.died = True
+        mons = [m for m in sim.monsters if not m.dead and m.hp > 0]
+        # biggest single drop seen so far this battle -> heal earlier when hits are big compared to the HP pools
+        for c in party:
+            prev = self.last_hp.get(c.i)
+            if prev is not None and c.hp < prev: self.max_hit = max(self.max_hit, prev - c.hp)
+            self.last_hp[c.i] = c.hp
+        alive = [c.max_hp for c in party if not c.dead and c.max_hp]
+        if self.hard and alive and self.max_hit: self.heal_below = min(0.85, max(0.5, 1.4 * self.max_hit / min(alive)))
+        # 1-3. revive / heal / potion: the SmartPolicy order (kept: it only acts when somebody needs it)
+        c = self._support(sim, char, party, me, mons)
+        if c is not None: return c
+        # 4. buffs for hard fights
+        if self.hard and mons:
+            for sp in self.buff_ids:
+                cost = self._known(sim, char, sp)
+                if cost is None or cost > me.mp - self._cure_reserve(sim, char): continue
+                for ally in sorted((c for c in party if not c.dead and c.max_hp), key=lambda c: -c.max_hp):
+                    if (ally.i, sp) in self.buffed: continue
+                    self.buffed.add((ally.i, sp))
+                    return Command(MAGIC_COMMAND, 0x20, 0, Command.party_mask(ally.i), sp)
+        if not mons: return Command.fight(0)
+        # 5. attack magic with the element table
+        best = None
+        floor = 0 if self.hard else int(self.mp_floor * me.max_mp)
+        for sp in self.attack_all:
+            cost = self._known(sim, char, sp)
+            if cost is None or cost > me.mp - floor: continue
+            info = self.spell_info(sp)
+            for m in mons:
+                el = info["element"]
+                if el and (self._mon_el(sim, m, "absorb") & el or self._mon_el(sim, m, "immune") & el): continue
+                weak = bool(el and self._mon_el(sim, m, "weak") & el)
+                if not self.hard and not weak and me.mp - cost < me.max_mp * 0.6: continue    # ordinary fight, no weakness: only spend a surplus
+                dmg = info["power"] * (2 if weak else 1)
+                score = (dmg, -cost) if self.hard else (weak, -cost, -m.hp)
+                if best is None or score > best[0]: best = (score, sp, m)
+        if best:
+            return Command(MAGIC_COMMAND, 0x20, Command.monster_mask(best[2].i - 4), 0, best[1])
+        # 6. physical: the weakest living monster
+        tgt = min(mons, key=lambda m: m.hp)
+        return Command.fight(tgt.i - 4)
+
+    def _support(self, sim, char, party, me, mons):
+        """Revive / heal / Potion exactly as SmartPolicy decides them; None when nothing is needed."""
+        saved = self.attack_ids
+        self.attack_ids = []                      # SmartPolicy.__call__ would otherwise choose attack magic / Fight itself
+        try: cmd = SmartPolicy.__call__(self, sim, char)
+        finally: self.attack_ids = saved
+        return None if cmd.command == CMD_FIGHT_ID else cmd       # a fall-through to Fight means nothing to support
 
 
 class FleePolicy:
