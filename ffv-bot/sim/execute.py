@@ -130,6 +130,7 @@ class Exec(Nav):
         """walk with one tap per tile (hold-and-poll proved unreliable). Auto-move tiles (conveyors) can advance the party past the
         tile just stepped on, so a position that matches a later tile of the path is accepted too. Stops on a mismatch."""
         m0, cx, cy = self.fpos()
+        self.cheat_field()
         DX = {1: (0, -1), 2: (1, 0), 3: (0, 1), 4: (-1, 0)}
         mask = 255 if m0 < 5 else 63
         tiles = []

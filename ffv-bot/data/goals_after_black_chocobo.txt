@@ -1,1 +1,1 @@
-flag:59 flag:60 map:206 flag:171 flag:172 flag:256 map:213 map:192 map:210 flag:68 flag:486 flag:70 flag:73 flag:74
+flag:59 flag:60 map:206 flag:171 flag:172 flag:256 map:213 map:192 map:210 flag:68 flag:486 flag:70 flag:73 flag:74 flag:181 flag:182 flag:180 flag:75 flag:178 map:195 map:196 map:197 map:215 map:216 map:217 pos:218:23:29 pos:218:23:15

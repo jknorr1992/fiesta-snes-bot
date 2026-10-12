@@ -34,6 +34,20 @@ class Nav(Game):
                 self.write(b + 10, bytes([0x0F, 0x27, 0x0F, 0x27]))     # mp, max mp 9999
                 self.write(b + 2, bytes([99]))                          # level 99
                 self.write(b + 0x24, bytes([99] * 8))                   # base and current strength, agility, stamina, magic power
+    GEAR = {0x0E: 199, 0x0F: 200, 0x10: 201, 0x11: 198, 0x12: 198, 0x13: 21, 0x14: 0}      # Genji helm / armor / glove, Genji shields, Excalibur
+    def cheat_field(self):
+        """Route-test cheat on the field character structs (never the position): revive KO'd members, fill HP, and wear the best gear. The
+        battle derives attack, defense and evade from the equipment at its start, and the Freelancers of the saved states carry daggers, so
+        without this fights are barely winnable even at 'level 99' (the level byte is not used by the damage formula, the stats and gear are).
+        FFV_GEAR=0 skips it."""
+        if os.environ.get("FFV_GEAR", "1") == "0" or self.u8(0x18) == 1: return
+        for slot in range(4):
+            b = 0x500 + 0x50 * slot
+            if self.u8(b) & 0x40: continue                                     # not in the party
+            self.write(b + 6, bytes([0x0F, 0x27]))                              # HP 9999
+            self.write(b + 0x1A, bytes([self.u8(b + 0x1A) & 0x3F]))             # not dead (0x80) / stone (0x40)
+            for o, v in self.GEAR.items(): self.write(b + o, bytes([v]))
+
     def start_god(self):
         """Immortality cheat: a background thread (own UDP socket) refills the party's battle HP and sets defense / magic defense to 255 every ~8 ms,
         so no enemy action can land a killing blow between two refills (the max-stat cheat only reaches the base stats; the derived defense values
@@ -131,7 +145,7 @@ class Nav(Game):
             try: r = self._fight(limit, time.time() + tmo)
             finally: self.stop_god()
             if not self._hung:
-                self.cheat_level = "full"; return r
+                self.cheat_level = "full"; self.cheat_field(); return r
             print("   battle hung (cheat level %s, attempt %d)%s" % (self.cheat_level, attempt + 1, "; reloading the battle start" if snap else ""), flush=True)
             if not snap or not self.load_from(snap): break
             self.wait(7 * (attempt + 1) + 5)
