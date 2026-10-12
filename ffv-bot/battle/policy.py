@@ -347,6 +347,8 @@ class VeteranPolicy(TacticalPolicy):
         if hurt:
             ally = min(hurt, key=lambda c: (need(c) if self.hard else c.hp / c.max_hp)).i
             a = party[ally]
+            c = self._multi_heal(sim, char, party, me, ally)
+            if c is not None: return c
             for sp in reversed(self.heal_ids):
                 cost = self._known(sim, char, sp)
                 if cost is not None and cost <= me.mp:
@@ -366,6 +368,38 @@ class VeteranPolicy(TacticalPolicy):
                         self.pending[("h", ally)] = (sim.frame, a.hp)
                         return Command.item(slot, party=(ally,))
         return None
+
+    def _heal_amount(self, sim, me, sp):
+        """(single, per target when cast on several) HP of Cure / Cure2 / Cure3 at the lowest roll: (power + 0..power/8) * M with M = level * magic / 256 + 4;
+        a spell with the all-targets flag heals half as much on each target when it is cast on more than one (the game's multi-target rule)."""
+        power = self.spell_info(sp)["power"]
+        m = ((sim.w[me.b + 2] * sim.w[me.b + 0x2B]) >> 8) + 4
+        return power * m, (power * m) // 2
+
+    def _multi_heal(self, sim, char, party, me, urgent):
+        """Cure on several hurt allies at once when that heals clearly more per MP than one single-target cast (the player toggles the spell to
+        all-targets): value = HP actually restored, since each target gets half.  Not when the most urgent ally would still be in reach of the
+        worst hit afterwards.  -> Command or None."""
+        hurt = [c for c in party if not c.dead and c.max_hp and c.hp > 0 and c.row & 0x40 == 0 and not self._covered("h", c.i, sim, party) and c.max_hp - c.hp > 0]
+        if len(hurt) < 2: return None
+        best = None
+        for sp in self.heal_ids:
+            cost = self._known(sim, char, sp)
+            if cost is None or cost > me.mp or not (self.d.r[SPELL_TABLE + 8 * sp] & 0x80): continue
+            full, half = self._heal_amount(sim, me, sp)
+            if half <= 0: continue
+            tgt = [c for c in hurt if c.max_hp - c.hp >= 0.4 * half]
+            if len(tgt) < 2: continue
+            multi = sum(min(c.max_hp - c.hp, half) for c in tgt)
+            a = party[urgent]
+            single = min(a.max_hp - a.hp, full)
+            if multi < 1.4 * single: continue                     # not clearly better than one cast on the neediest
+            if a.hp + half <= self.threat.get(urgent, (0, 0))[1] and a.hp + single > self.threat.get(urgent, (0, 0))[1]: continue      # the urgent ally needs the full heal
+            if best is None or multi / cost > best[0]: best = (multi / cost, sp, tgt)
+        if best is None: return None
+        _, sp, tgt = best
+        for c in tgt: self.pending[("h", c.i)] = (sim.frame, c.hp)
+        return Command(MAGIC_COMMAND, 0x20, 0, Command.party_mask(*[c.i for c in tgt]), sp)
 
     def priority(self, m):
         # kill first what hurts most per HP left (its best possible hit / its remaining HP); equal threats -> weakest first

@@ -29,7 +29,7 @@ from multiprocessing import Pool
 from data import GameData
 from field import Field, Character, FIELD_CHAR, CHAR_SIZE, RNG_SEED, FIELD_ITEMS, FIELD_QTY
 from party import Catalog, _norm
-from policy import SmartPolicy, FleePolicy, TacticalPolicy, VeteranPolicy
+from policy import SmartPolicy, FleePolicy, TacticalPolicy, VeteranPolicy, SPELL_TABLE
 from knowledge import Bestiary
 from abilities import Abilities
 from jobs import JobSwitcher
@@ -50,6 +50,20 @@ def forbidden_commands(allow):
     from jobcmds import FORBIDDEN_DEFAULT
     ok = {x.strip() for x in (allow or "").split(",") if x.strip()}
     return sorted(set(FORBIDDEN_DEFAULT) - ok)
+
+BACK_ROW_JOBS = ("BlackMage", "WhiteMage", "TimeMage", "BlueMage", "Summoner", "RedMage", "Chemist", "Bard", "Ranger")
+
+
+def set_rows(f, d):
+    """Formation (free to change on the menu): casters and support jobs stand in the back row, where physical hits do half damage, fighters in
+    front; at least one member always stays in front (the sturdiest one)."""
+    members = [(i, f.character(i)) for i in range(4) if f.character(i).in_party]
+    back = [i for i, ch in members if d.job_name(ch.job) in BACK_ROW_JOBS]
+    if members and len(back) == len(members):
+        keep = max(members, key=lambda m: m[1].max_hp)[0]; back.remove(keep)
+    for i, ch in members:
+        if ch.back_row != (i in back): ch.back_row = i in back; f.set_character(i, ch)
+
 
 def supported_commands(allow):
     """Names of the job commands the policy has plugins for, minus the forbidden ones."""
@@ -365,6 +379,7 @@ class Campaign:
         self.jobs = dict(DEFAULT_JOBS)
         self.js = JobSwitcher(self.d, worst=a.worst_char)
         self.supported = supported_commands(a.allow_commands)
+        self._cures = {}; self.field_casts = 0
         self.avail = set(); self.comfort = 0.5; self.unlocks = load_unlocks(); self._probes = {}
         if a.jobs_spec: self.jobs.update(json.load(open(a.jobs_spec)))
         self.pool = Pool(a.jobs, initializer=_init, initargs=(a.rom, a.policy, a.boss_deaths, a.input_latency, forbidden_commands(a.allow_commands)))
@@ -520,6 +535,61 @@ class Campaign:
                 l = label(int(m)); self.inn_by_stage[l] = min(p, self.inn_by_stage.get(l, 10**9))
         return self.inn_by_stage.get(st["name"]) if st["kind"] == "local" else None
 
+    # ---- healing between fights (menu Cure with spare MP)
+    def heal_spells(self):
+        """{member: [(spell id, MP, power)]} of the Cure spells each member can cast, read from the battle setup of a throw-away fight (cached)."""
+        from scenario import run_battle
+        from sim import BattleSim
+        from policy import CHAR_SPELLS, SPELL_SLOT
+        st = self.state; key = (tuple((st.character(i).job, tuple(st.character(i).commands), st.character(i).level) for i in range(4)), bytes(st.wram[MAGIC_BITS:MAGIC_BITS + 12]))
+        if key in self._cures: return self._cures[key]
+        if "_psim" not in self.__dict__: self._psim = BattleSim(open(self.rom_path, "rb").read())
+        if "_hp" not in self.__dict__: self._hp = TacticalPolicy(self.d)
+        f = Field.from_wram(st.to_wram(), self.d)
+        for i in range(4):
+            ch = f.character(i); ch.hp = ch.max_hp; ch.mp = ch.max_mp; f.set_character(i, ch)
+        seen = {}
+        def pol(sim, char):
+            for i in range(4):
+                b = CHAR_SPELLS + SPELL_SLOT * i
+                seen[i] = {sp: sim.w[b + 260 + sp] for sp in self._hp.heal_ids if sim.w[b + sp] == sp}
+            sim.running = False
+            return Command.fight(0)
+        run_battle(f.to_wram(), 0, 0, policy=pol, max_frames=4000, sim=self._psim)
+        out = {i: sorted((sp, mp, self.d.r[SPELL_TABLE + 8 * sp + 6]) for sp, mp in seen.get(i, {}).items()) for i in range(4)}
+        self._cures[key] = out
+        return out
+
+    def field_heal(self, reserve=0.35, goal=0.85):
+        """Between fights a player heals the party from the menu with Cure (MP), as long as the healers keep `reserve` of their MP for the next
+        fight.  Cure heals (power + 0..power/8) * (level * magic / 256 + 4); the lowest roll is used.  Cure on several allies heals each for half
+        (as in battle).  Not used on the exploding-castle clock (menu time would count there)."""
+        if not self.a.field_heal: return 0
+        st = self.state; spells = self.heal_spells(); casts = 0
+        for _ in range(30):
+            ch = {i: st.character(i) for i in range(4) if st.character(i).in_party}
+            need = {i: c.max_hp - c.hp for i, c in ch.items() if c.hp > 0 and c.hp < goal * c.max_hp}
+            if not need: break
+            options = []                          # (efficiency, healer, spell, targets, heal per target)
+            for h, lst in spells.items():
+                if h not in ch or ch[h].hp <= 0: continue
+                m = ((ch[h].level * ch[h].base_mag) >> 8) + 4
+                for sp, mp, power in lst:
+                    if ch[h].mp - mp < reserve * ch[h].max_mp: continue
+                    full = power * m
+                    if full <= 0: continue
+                    t = min(need, key=lambda i: ch[i].hp / ch[i].max_hp)
+                    options.append((min(need[t], full) / mp, h, sp, [t], full, mp))
+                    if self.d.r[SPELL_TABLE + 8 * sp] & 0x80:
+                        half = full // 2; tg = [i for i, d_ in need.items() if d_ >= 0.4 * half]
+                        if len(tg) >= 2: options.append((sum(min(need[i], half) for i in tg) / mp, h, sp, tg, half, mp))
+            if not options: break
+            _, h, sp, tg, amount, mp = max(options)
+            for i in tg: ch[i].hp = min(ch[i].max_hp, ch[i].hp + amount); st.set_character(i, ch[i])
+            c = st.character(h); c.mp = c.mp - mp; st.set_character(h, c); casts += 1
+        self.field_casts += casts
+        return casts
+
     def hp_fraction(self):
         fr = [c.hp / max(1, c.max_hp) for c in (self.state.character(i) for i in range(4)) if c.in_party]
         return min(fr)
@@ -543,6 +613,7 @@ class Campaign:
         f.wram[:] = w; f.set_items(bag)
         equip_owned(f, self.d, [])
         self.equip_abilities(f, quiet=True)
+        set_rows(f, self.d)
         for i, (hf, mf) in frac.items():
             ch = f.character(i); ch.hp = max(1, round(ch.max_hp * hf)); ch.mp = round(ch.max_mp * mf); f.set_character(i, ch)
         return f
@@ -713,6 +784,7 @@ class Campaign:
                         self.say(f"   CASTLE TIMER: {base + used} frames of fighting > {budget}: Castle Karnak explodes: game over")
                         return False, dict(info, timer=True, used=base + used)
                 chests = []
+            if not timed: self.field_heal()
             if enc == LIQUID_FLAME and not timed:          # the game over of the escape comes back to this point: the party just before Liquid Flame
                 self.before_liquid = self.state.to_wram(); self.looted_before_liquid = set(self.looted); open(os.path.join(self.a.out, "before_liquid.bin"), "wb").write(self.before_liquid)
             ok, info = self.fight(enc, bg, label, 2 * self.a.runs if scripted else self.a.runs, scripted)
@@ -983,6 +1055,7 @@ def make_parser():
     ap.add_argument("--input-latency", type=int, default=12, help="frames of the escape timer a player needs to enter a Fight command before the wait-mode sub-menus start (menu ignores input for 9 frames after opening, then one tap; Item and other commands +6); 0 = commands are instant")
     ap.add_argument("--real-chars", dest="worst_char", action="store_false", help="use each character's own stat modifiers instead of the theoretical worst-case character (the lowest of the four)")
     ap.add_argument("--allow-commands", default="", help='comma list of normally forbidden commands to allow, e.g. "Mix,Gil Toss" (user, 2026-10-12: forbidden by default, they would distort the training)')
+    ap.add_argument("--no-field-heal", dest="field_heal", action="store_false", help="no Cure from the menu between fights (healing only at the world map, a save point, an inn or a Tent)")
     ap.add_argument("--no-plan", dest="plan", action="store_false", help="no role-based job planning: keep --jobs-spec jobs and try permutations when a boss fails (old behaviour)")
     ap.add_argument("--no-reassign", dest="reassign", action="store_false", help="do not try other job assignments when a boss batch fails")
     ap.add_argument("--steps-per-map", type=int, default=80, help="steps walked on each local map (for the number of random encounters)")
