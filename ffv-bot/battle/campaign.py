@@ -339,6 +339,8 @@ class Campaign:
         self.jobs_unlocked = False; self.faris_in = False; self.looted = set()
         liquid = [i for i, st in enumerate(self.stages) if any(f["kind"] == "scripted" and any(b == LIQUID_FLAME for b, _ in f["battles"]) for f in st["fights"])]
         self.liquid_idx = liquid[0] if liquid else None
+        for i, st in enumerate(self.stages):         # the first Castle Karnak visit (before Liquid Flame) is peaceful (user, 2026-10-12): no fights
+            if self.liquid_idx is not None and i < self.liquid_idx and st["name"] == "Castle Karnak": st["fights"] = []
         # Castle Karnak after Liquid Flame is on a 10 minute self-destruct timer; the user budgets 5 minutes of fighting (frames) in it
         self.timed = {i for i, st in enumerate(self.stages) if self.liquid_idx is not None and i > self.liquid_idx and st["name"] == "Castle Karnak"}
         self.after_liquid = None; self._frames = 0; self.rush = False
