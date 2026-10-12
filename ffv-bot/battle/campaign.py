@@ -498,7 +498,7 @@ class Campaign:
         """One fight as a batch.  Returns (counted, summary).  Advances self.state to the batch's average result when it counts.
         A random fight that cannot be won flawlessly may be run away from (hold L+R) if that works 95% of the time without a death."""
         b = self.d.battle(enc)
-        at_cap = (bool(self.a.max_level) and self.top_level() >= self.a.max_level) or self.rush
+        at_cap = (bool(self.cap()) and self.top_level() >= self.cap()) or self.rush
         if (self.a.flee_first or at_cap) and not scripted and not b["no_run"] and not b["boss"]:       # at the level cap more experience is worth nothing: run
             fl = self.batch(enc, bg, runs, "flee"); self.fights_run += 1          # least experience: run from every fight that can be run from safely
             ok = [r for r in fl if r["flawless"]]
@@ -525,6 +525,10 @@ class Campaign:
             if len(ok) / len(fl) >= self.a.flawless:
                 info["exp"] = self.adopt(ok); info["fled"] = True; info["frames"] = self._frames; return True, info
         return False, info
+
+    def cap(self):
+        """The level cap of the challenge (beat Liquid Flame at or below it); once Liquid Flame is beaten it no longer applies."""
+        return 0 if self.after_liquid is not None else self.a.max_level
 
     def top_level(self):
         return max(self.state.character(i).level for i in range(4) if self.state.character(i).in_party)
@@ -580,7 +584,7 @@ class Campaign:
             new = self.abil.loadout(w, i, ch.commands, has_shield=bool(ch.lh_shield), two_handed=bool(ch.rh_weapon) and not ch.lh_weapon)
             if new != ch.commands:
                 w = self.js.set_commands(w, i, new)              # passives also change stat modifiers, flags and max HP / MP
-                log.append(f"{SLOT_NAMES[i]}: " + ", ".join(self.abil.name(c & 0x7F) + "*" if c & 0x80 else self.d.command_name(c) for c in new[1:3] if c))
+                log.append(f"{SLOT_NAMES[i]}: " + ", ".join(self.abil.passive_name(c & 0x7F) + "*" if c & 0x80 else self.d.command_name(c) for c in new[1:3] if c))
         state.wram[:] = w
         if not quiet:
             for l in log: self.say("  abilities: " + l)
@@ -683,8 +687,8 @@ class Campaign:
             while True:
                 snap = (self.state.to_wram())
                 ok, info = self.run_pass(st, attempts, label, timed=idx in self.timed)
-                if self.a.max_level and self.top_level() > self.a.max_level:
-                    self.say(f"   LEVEL CAP {self.a.max_level} exceeded (level {self.top_level()}) in {label}: challenge failed")
+                if self.cap() and self.top_level() > self.cap():
+                    self.say(f"   LEVEL CAP {self.cap()} exceeded (level {self.top_level()}) in {label}: challenge failed")
                     report.append(dict(stage=idx, name=label, status="level cap exceeded")); return self.finish(report, stuck=idx)
                 if ok: break
                 self.say(f"   fight did not count: {info['name']} at {info['map']}: flawless {info['rate']:.0%} < {self.a.flawless:.0%}")
@@ -704,8 +708,8 @@ class Campaign:
                     gi = max(0, idx - 1)
                     while gi > 0 and (not schedule(self.stages[gi]) or not usable(gi)): gi -= 1
                 self.grind(gi, before)
-                if self.a.max_level and self.top_level() > self.a.max_level:
-                    self.say(f"   LEVEL CAP {self.a.max_level} exceeded (level {self.top_level()}) while grinding for {label}: challenge failed")
+                if self.cap() and self.top_level() > self.cap():
+                    self.say(f"   LEVEL CAP {self.cap()} exceeded (level {self.top_level()}) while grinding for {label}: challenge failed")
                     report.append(dict(stage=idx, name=label, status="level cap exceeded")); return self.finish(report, stuck=idx)
                 self.go_shopping(idx)
                 self.save(idx - 1)                            # checkpoint: a restart resumes this stage with the boosted party
@@ -731,7 +735,7 @@ class Campaign:
             boosted = all(a > b for a, b in zip(self.party_power(), before)) if len(self.party_power()) == len(before) else True
             self.say(f"   grind pass {n} in {st['name']}: {'ok' if ok else 'a fight failed: ' + info['name']} | {self.summary_line()} | boost {boosted}")
             if boosted: return
-            if self.a.max_level and self.top_level() > self.a.max_level: return
+            if self.cap() and self.top_level() > self.cap(): return
             self.save(self.cur_idx - 1)                        # keep the progress of long grinds across restarts
             if n >= self.a.max_grind_passes:
                 self.say("   grind limit reached"); return
