@@ -2,7 +2,7 @@
 """Route play-test driver: walks the ROM-derived route on the test bed with dev cheats (immortal party, 1-HP monsters).
 Movement uses ROM data for planning (world rows + tile properties; local map grid and tile properties read from WRAM) and
 RAM position feedback; blocked steps are remembered and replanned. Cheats are for route testing only (user-approved)."""
-import os, sys, os, time
+import os, sys, socket, time
 from collections import deque
 sys.path.insert(0, os.path.dirname(__file__))
 from play import Game, IDS
@@ -34,6 +34,27 @@ class Nav(Game):
                 self.write(b + 10, bytes([0x0F, 0x27, 0x0F, 0x27]))     # mp, max mp 9999
                 self.write(b + 2, bytes([99]))                          # level 99
                 self.write(b + 0x24, bytes([99] * 8))                   # base and current strength, agility, stamina, magic power
+    def start_god(self):
+        """Immortality cheat: a background thread (own UDP socket) refills the party's battle HP every ~8 ms, so no enemy action can land a
+        killing blow between two refills of the slower main-loop cheat."""
+        import threading
+        if getattr(self, "_god", None): return
+        self._god_stop = False
+        def run():
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.setblocking(False)
+            msgs = [("WRITE_CORE_RAM %x 0f 27" % (0x2000 + 0x80 * slot + 6)).encode() for slot in range(4)]
+            while not self._god_stop:
+                for m in msgs: s.sendto(m, (self.host, 55355))
+                try:
+                    while True: s.recvfrom(65536)
+                except Exception: pass
+                time.sleep(0.008)
+            s.close()
+        self._god = threading.Thread(target=run, daemon=True); self._god.start()
+    def stop_god(self):
+        if getattr(self, "_god", None):
+            self._god_stop = True; self._god.join(1); self._god = None
+
     def cheat_battle(self):
         for slot in range(4):
             b = 0x2000 + 0x80 * slot
@@ -85,6 +106,10 @@ class Nav(Game):
         return inb, over, (cur if o[0] == 1 and cur < 4 else None)
 
     def fight(self, limit=4000):
+        try: return self._fight(limit)
+        finally: self.stop_god()
+
+    def _fight(self, limit=4000):
         """Win the current battle (enemy HP cheats), driven by the battle state instead of blind A presses: only act when a command menu is
         open (reset the remembered cursor to the first command, Fight, confirm the first target), dismiss the result windows once the
         battle is over, and when a menu stays open too long (stuck in a sub-menu such as Item) cancel with B and start over.
@@ -102,7 +127,9 @@ class Nav(Game):
             frozen = 0
             tick += 1
             if mc is not None: loaded = True
-            if loaded and tick % 6 == 0 and os.environ.get('FFV_CHEAT', '1') != '0': self.cheat_battle()
+            if loaded and os.environ.get('FFV_CHEAT', '1') != '0':
+                self.start_god()
+                if tick % 6 == 0: self.cheat_battle()
             if over:
                 self.press("A", 3, 12); menu_since = None; continue
             if mc is None:
