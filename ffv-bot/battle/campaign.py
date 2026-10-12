@@ -62,9 +62,10 @@ def _policy(d, enc, all_out=False):
 
 def _run(job):
     from scenario import run_battle
-    wram, enc, bg, seed, mode = job
+    wram, enc, bg, seed, mode, timer = job
     d = _W["data"]
     w = bytearray(wram); w[RNG_SEED] = seed & 0xFF
+    if timer: w[0xAFB] = 2; w[0xAFC] = 0xFF; w[0xAFD] = 0x7F        # the escape countdown is on ($0AFB = 2): the ROM's own battle code counts it down
     pol = None
     for attempt in range(4):             # a rare sim deadlock (direct command raced a status change) is retried on the next seed; counted in `stalls`
         w[RNG_SEED] = (seed + attempt) & 0xFF
@@ -74,13 +75,16 @@ def _run(job):
         _W["sim"].hold = 0
         if not r.crash.startswith("sim stall"): break
     stalls = attempt
+    frames = r.frames
+    if timer and r.wram:
+        frames = 0x7FFF - (r.wram[0xAFC] | r.wram[0xAFD] << 8)         # ticks of the escape timer used by this battle (it pauses while the game is paused / in the wait-mode sub-menus), not wall-clock frames
     dead_end = any(c.hp == 0 or (c.status1 & 0xC0) for c in r.party_after if c.in_party)
     b = d.battle(enc)
     if mode != "flee" and (b["no_run"] or b["boss"]) and _W.get("boss_deaths"):         # boss fights: a win counts even when somebody fell
         flawless = r.outcome == "victory"
     else:
         flawless = r.outcome == ("escaped" if mode == "flee" else "victory") and not pol.died and not dead_end
-    return dict(outcome=r.outcome, flawless=flawless, frames=r.frames, gil=r.gil_gained, exp=r.exp_gained, items=r.items_won,
+    return dict(outcome=r.outcome, flawless=flawless, frames=frames, real_frames=r.frames, gil=r.gil_gained, exp=r.exp_gained, items=r.items_won,
                 stalls=stalls, wram=r.wram if r.outcome in ("victory", "escaped") else b"")
 
 # ------------------------------------------------------------------ gear / shops
@@ -356,7 +360,7 @@ class Campaign:
             if self.liquid_idx is not None and i < self.liquid_idx and st["name"] == "Castle Karnak": st["fights"] = []
         # Castle Karnak after Liquid Flame is on a 10 minute self-destruct timer; the user budgets 5 minutes of fighting (frames) in it
         self.timed = {i for i, st in enumerate(self.stages) if self.liquid_idx is not None and i > self.liquid_idx and st["name"] == "Castle Karnak"}
-        self.before_liquid = None; self.liquid_beaten = False; self.redo_liquid = False; self.game_overs = 0; self.seed_shift = 0; self._frames = 0; self.rush = False; self.castle_used = 0; self.castle_heal_zone = True
+        self.before_liquid = None; self.liquid_beaten = False; self.redo_liquid = False; self.game_overs = 0; self.seed_shift = 0; self._frames = 0; self.rush = False; self.castle_used = 0; self.castle_heal_zone = True; self.timer_on = False
 
     # ---- party
     def new_state(self):
@@ -436,7 +440,7 @@ class Campaign:
     def batch(self, enc, bg, runs, mode="fight", state=None):
         w = (state or self.state).to_wram()
         seeds = [(k * 97 + (enc * 31) + self.seed_shift) % 256 for k in range(runs)]
-        return self.pool.map(_run, [(w, enc, bg, s, mode) for s in seeds], chunksize=2)
+        return self.pool.map(_run, [(w, enc, bg, s, mode, self.timer_on) for s in seeds], chunksize=2)
 
     def variant(self, assign):
         """A copy of the party state with the members in the jobs of `assign` ({name: job}): the game's own job change (stat modifiers,
@@ -491,6 +495,7 @@ class Campaign:
         self._frames = round(sum(r["frames"] for r in runs) / len(runs))
         rep = min(runs, key=lambda r: abs(sum(r["exp"]) - mean_exp))
         f = Field.from_wram(rep["wram"], self.d)
+        f.wram[0xAFB] = 0; f.wram[0xAFC] = 0; f.wram[0xAFD] = 0          # the escape countdown only exists inside the castle batches
         for i in range(4):
             ch = f.character(i)
             if not ch.in_party: continue
@@ -552,6 +557,7 @@ class Campaign:
         """One pass over a stage's fights.  Returns (ok, failed_fight_info).  `timed`: the stage is on the Castle Karnak self-destruct
         clock: fights are run away from (when that is safe) once the average pace would overrun CASTLE_FRAMES; a pass whose fights
         take more frames than that is a game over (info['timer'])."""
+        self.timer_on = bool(timed)
         fights = schedule(stage, offset, random_only)
         if self.redo_liquid and stage is self.stages[self.liquid_idx]: fights = [f for f in fights if f[3]]      # back before Liquid Flame: just the boss again
         mid = len(fights) // 2; used = 0; done = 0
@@ -850,7 +856,7 @@ def main():
     ap.add_argument("--jobs", type=int, default=None, help="worker processes")
     ap.add_argument("--runs", type=int, default=64, help="battles per fight batch")
     ap.add_argument("--flawless", type=float, default=0.95)
-    ap.add_argument("--input-latency", type=int, default=24, help="frames a player needs to enter a Fight command through the battle menu (measured best case with 1-frame button taps: 24; Item and other commands +6); 0 = commands are instant")
+    ap.add_argument("--input-latency", type=int, default=12, help="frames of the escape timer a player needs to enter a Fight command before the wait-mode sub-menus start (menu ignores input for 9 frames after opening, then one tap; Item and other commands +6); 0 = commands are instant")
     ap.add_argument("--no-reassign", dest="reassign", action="store_false", help="do not try other job assignments when a boss batch fails")
     ap.add_argument("--steps-per-map", type=int, default=80, help="steps walked on each local map (for the number of random encounters)")
     ap.add_argument("--castle-frames", type=int, default=CASTLE_FRAMES, help="frame budget for the fights of Castle Karnak after Liquid Flame")
