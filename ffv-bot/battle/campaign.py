@@ -50,10 +50,10 @@ def _init(rom_path, policy="tactical", boss_deaths=False):
     rom = open(rom_path, "rb").read()
     _W["sim"] = BattleSim(rom); _W["data"] = GameData(rom); _W["policy"] = policy; _W["boss_deaths"] = boss_deaths
 
-def _policy(d, enc):
+def _policy(d, enc, all_out=False):
     if _W.get("policy") == "smart": return SmartPolicy(d)
     b = d.battle(enc)
-    hard = bool(b["no_run"] or b["boss"])
+    hard = bool(b["no_run"] or b["boss"]) or all_out
     if _W.get("policy") == "veteran":
         if "bestiary" not in _W: _W["bestiary"] = Bestiary(d)
         return VeteranPolicy(d, _W["bestiary"], b["monster_ids"], hard=hard)
@@ -67,7 +67,7 @@ def _run(job):
     pol = None
     for attempt in range(4):             # a rare sim deadlock (direct command raced a status change) is retried on the next seed; counted in `stalls`
         w[RNG_SEED] = (seed + attempt) & 0xFF
-        pol = FleePolicy() if mode == "flee" else _policy(d, enc)
+        pol = FleePolicy() if mode == "flee" else _policy(d, enc, all_out=(mode == "allout"))
         _W["sim"].hold = (L | R) if mode == "flee" else 0           # running away = holding L+R
         r = run_battle(bytes(w), enc, bg, policy=pol, max_frames=40000, sim=_W["sim"], keep_wram=True)
         _W["sim"].hold = 0
@@ -518,6 +518,10 @@ class Campaign:
         self.fights_run += 1
         flawless = [r for r in res if r["flawless"]]
         rate = len(flawless) / len(res)
+        if rate < self.a.flawless and not scripted:           # a fight that would not count: the veteran goes all out (spends MP freely, heals against the worst hit) before giving up
+            res2 = self.batch(enc, bg, runs, "allout"); self.fights_run += 1
+            fl2 = [r for r in res2 if r["flawless"]]
+            if len(fl2) > len(flawless): res, flawless, rate = res2, fl2, len(fl2) / len(res2)
         name = self.d.battle_summary(enc).split(": ", 1)[-1]
         info = dict(battle=enc, name=name, rate=round(rate, 3), map=str(label))
         if rate >= self.a.flawless:
@@ -718,6 +722,7 @@ class Campaign:
             self.say(f"== stage {idx}: {label} (steps {st['steps'][0]}-{st['steps'][-1]}), {len(schedule(st))} fights | {self.summary_line()}")
             self.collect_loot(st)
             self.go_shopping(idx)
+            if idx == self.liquid_idx and self.cap(): self.prepare_escape(idx)
             before = self.party_power()
             fail_state = None
             attempts = 0
@@ -788,6 +793,22 @@ class Campaign:
             if n >= self.a.max_grind_passes:
                 self.say("   grind limit reached"); return
             self.go_shopping(gi)
+
+    def prepare_escape(self, idx):
+        """Liquid Flame is followed at once by the escape from the exploding castle, where nothing can be bought and no other area can be
+        fought in: the party enters the Steamship boss at the level cap (the challenge limit) with its gil spent, grinding the nearest
+        earlier area with random fights to get there."""
+        cap = self.cap(); gi = idx - 1
+        while gi > 0 and n_random(self.stages[gi]) < 3: gi -= 1
+        st = self.stages[gi]; n = 0
+        while self.top_level() < cap and n < self.a.max_grind_passes:
+            n += 1
+            self.heal("grind", self.inn_price(st))
+            ok, info = self.run_pass(st, 3000 + n, st["name"], random_only=True)
+            self.say(f"   preparing for the Karnak escape, pass {n} in {st['name']}: {'ok' if ok else 'a fight failed: ' + info['name']} | {self.summary_line()}")
+            self.go_shopping(gi); self.save(idx - 1)
+            if self.top_level() > cap: return                  # the main loop reports the cap breach
+        self.go_shopping(idx)
 
     def grind_castle(self, st, before):
         """Random Karnak fights again (the boss and the chests are not repeated) until every member got a power boost; True when the clock ran out."""
