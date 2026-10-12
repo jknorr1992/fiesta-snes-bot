@@ -131,6 +131,7 @@ def main():
     # ---- world map blocks ----
     wr = {}
     for w, x, y, veh, step in reached["world_tiles"]:
+        if veh == 3: continue            # no random encounters while riding the dragon (user, 2026-10-12), over land or water
         ts = TILESET[w]; rows_t = None
         wr.setdefault((w, x >> 5, y >> 5), []).append((x, y, veh, step))
     # tile ids come from the simulator's world model (event world changes follow the flags at that route step in the chain; the base map is used here)

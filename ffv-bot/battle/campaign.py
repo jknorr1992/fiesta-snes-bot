@@ -252,6 +252,7 @@ def build_stages(enc_json, reached_json, areas_json, steps_per_map, jobs_data=No
     for ms, ss in reached["local_maps"].items():
         for s in ss: step_loc.setdefault(s, {"L": set(), "W": {}})["L"].add(label(int(ms)))
     for w, x, y, veh, s in reached["world_tiles"]:
+        if veh == 3: continue            # no random encounters while riding the dragon (user, 2026-10-12), over land or water
         step_loc.setdefault(s, {"L": set(), "W": {}})["W"].setdefault((w, x >> 5, y >> 5), 0)
         step_loc[s]["W"][(w, x >> 5, y >> 5)] += 1
     stages = []

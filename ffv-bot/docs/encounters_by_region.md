@@ -888,25 +888,19 @@ Random battles: none
 
 ## World 1: tiles x 192-223, y 64-95
 
-**Terrain 0** (on foot, hiryuu; 33 tiles visited; example tile (196,88)), rate normal, background 0
+**Terrain 0** (on foot; 31 tiles visited; example tile (196,88)), rate normal, background 0
 - 35.2%  battle 34: Galura [18]
 - 35.2%  battle 34: Galura [18]
 - 23.4%  battle 34: Galura [18]
 -  6.2%  battle 34: Galura [18]
 
-**Terrain 1** (on foot, hiryuu; 8 tiles visited; example tile (220,83)), rate normal, background 1
+**Terrain 1** (on foot; 4 tiles visited; example tile (220,92)), rate normal, background 1
 - 35.2%  battle 25: Gatlings [14]
 - 35.2%  battle 26: Gatlings x2 [14], Bighorn [15]
 - 23.4%  battle 27: Tatu x2 [16]
 -  6.2%  battle 28: Bighorn [15], Gatlings [14], Tatu [16]
 
-**Terrain 3** (hiryuu; 3 tiles visited; example tile (220,85)), rate low, background 3
-- 35.2%  battle 406: Sahag{b2} x3 [217]
-- 35.2%  battle 407: Th.Anemone x2 [218], Sahag{b2} [217]
-- 23.4%  battle 406: Sahag{b2} x3 [217]
--  6.2%  battle 407: Th.Anemone x2 [218], Sahag{b2} [217]
-
-**Terrain 4** (on foot, hiryuu; 5 tiles visited; example tile (200,88)), rate normal, background 4
+**Terrain 4** (on foot; 3 tiles visited; example tile (200,88)), rate normal, background 4
 - 35.2%  battle 34: Galura [18]
 - 35.2%  battle 34: Galura [18]
 - 23.4%  battle 34: Galura [18]
@@ -950,13 +944,13 @@ Random battles: none
 
 ## World 1: tiles x 224-255, y 32-63
 
-**Terrain 0** (on foot, hiryuu; 5 tiles visited; example tile (225,57)), rate normal, background 0
+**Terrain 0** (on foot; 5 tiles visited; example tile (225,57)), rate normal, background 0
 - 35.2%  battle 27: Tatu x2 [16]
 - 35.2%  battle 28: Bighorn [15], Gatlings [14], Tatu [16]
 - 23.4%  battle 29: Tatu x2 [16], Gatlings [14]
 -  6.2%  battle 30: Bighorn x2 [15]
 
-**Terrain 1** (on foot, hiryuu; 43 tiles visited; example tile (224,52)), rate normal, background 1
+**Terrain 1** (on foot; 43 tiles visited; example tile (224,52)), rate normal, background 1
 - 35.2%  battle 27: Tatu x2 [16]
 - 35.2%  battle 28: Bighorn [15], Gatlings [14], Tatu [16]
 - 23.4%  battle 29: Tatu x2 [16], Gatlings [14]
@@ -964,13 +958,7 @@ Random battles: none
 
 ## World 1: tiles x 224-255, y 64-95
 
-**Terrain 0** (hiryuu; 20 tiles visited; example tile (224,81)), rate normal, background 0
-- 35.2%  battle 25: Gatlings [14]
-- 35.2%  battle 26: Gatlings x2 [14], Bighorn [15]
-- 23.4%  battle 27: Tatu x2 [16]
--  6.2%  battle 28: Bighorn [15], Gatlings [14], Tatu [16]
-
-**Terrain 1** (on foot, hiryuu; 11 tiles visited; example tile (228,64)), rate normal, background 1
+**Terrain 1** (on foot; 4 tiles visited; example tile (228,64)), rate normal, background 1
 - 35.2%  battle 25: Gatlings [14]
 - 35.2%  battle 26: Gatlings x2 [14], Bighorn [15]
 - 23.4%  battle 27: Tatu x2 [16]

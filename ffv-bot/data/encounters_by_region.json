@@ -9541,10 +9541,9 @@
      "group_index": 88,
      "random_group": 8,
      "rate": "normal",
-     "tiles_visited": 33,
+     "tiles_visited": 31,
      "vehicles": [
-      "on foot",
-      "hiryuu"
+      "on foot"
      ],
      "reached_at_route_steps": [
       81,
@@ -9639,19 +9638,18 @@
      "group_index": 89,
      "random_group": 4,
      "rate": "normal",
-     "tiles_visited": 8,
+     "tiles_visited": 4,
      "vehicles": [
-      "on foot",
-      "hiryuu"
+      "on foot"
      ],
      "reached_at_route_steps": [
-      81,
+      82,
       82
      ],
      "background": 1,
      "example_tile": [
       220,
-      83
+      92
      ],
      "random_battles": [
       {
@@ -9748,124 +9746,16 @@
      ]
     },
     {
-     "terrain": 3,
-     "group_index": 91,
-     "random_group": 100,
-     "rate": "low",
-     "tiles_visited": 3,
-     "vehicles": [
-      "hiryuu"
-     ],
-     "reached_at_route_steps": [
-      81,
-      81
-     ],
-     "background": 3,
-     "example_tile": [
-      220,
-      85
-     ],
-     "random_battles": [
-      {
-       "chance": 0.3516,
-       "battle": 406,
-       "boss": false,
-       "no_run": false,
-       "monsters": [
-        {
-         "id": 217,
-         "name": "Sahag{b2}",
-         "count": 3
-        }
-       ],
-       "flags": 0,
-       "intro": 0,
-       "flee": 100,
-       "ap": 1,
-       "music": 0,
-       "raw": "006401e0d9d9d9ffffffffff00000000"
-      },
-      {
-       "chance": 0.3516,
-       "battle": 407,
-       "boss": false,
-       "no_run": false,
-       "monsters": [
-        {
-         "id": 218,
-         "name": "Th.Anemone",
-         "count": 2
-        },
-        {
-         "id": 217,
-         "name": "Sahag{b2}",
-         "count": 1
-        }
-       ],
-       "flags": 0,
-       "intro": 0,
-       "flee": 100,
-       "ap": 1,
-       "music": 0,
-       "raw": "006401e0dadad9ffffffffff04000000"
-      },
-      {
-       "chance": 0.2344,
-       "battle": 406,
-       "boss": false,
-       "no_run": false,
-       "monsters": [
-        {
-         "id": 217,
-         "name": "Sahag{b2}",
-         "count": 3
-        }
-       ],
-       "flags": 0,
-       "intro": 0,
-       "flee": 100,
-       "ap": 1,
-       "music": 0,
-       "raw": "006401e0d9d9d9ffffffffff00000000"
-      },
-      {
-       "chance": 0.0625,
-       "battle": 407,
-       "boss": false,
-       "no_run": false,
-       "monsters": [
-        {
-         "id": 218,
-         "name": "Th.Anemone",
-         "count": 2
-        },
-        {
-         "id": 217,
-         "name": "Sahag{b2}",
-         "count": 1
-        }
-       ],
-       "flags": 0,
-       "intro": 0,
-       "flee": 100,
-       "ap": 1,
-       "music": 0,
-       "raw": "006401e0dadad9ffffffffff04000000"
-      }
-     ]
-    },
-    {
      "terrain": 4,
      "group_index": 88,
      "random_group": 8,
      "rate": "normal",
-     "tiles_visited": 5,
+     "tiles_visited": 3,
      "vehicles": [
-      "on foot",
-      "hiryuu"
+      "on foot"
      ],
      "reached_at_route_steps": [
-      81,
+      91,
       91
      ],
      "background": 4,
@@ -10523,12 +10413,11 @@
      "rate": "normal",
      "tiles_visited": 5,
      "vehicles": [
-      "on foot",
-      "hiryuu"
+      "on foot"
      ],
      "reached_at_route_steps": [
       71,
-      81
+      71
      ],
      "background": 0,
      "example_tile": [
@@ -10636,12 +10525,11 @@
      "rate": "normal",
      "tiles_visited": 43,
      "vehicles": [
-      "on foot",
-      "hiryuu"
+      "on foot"
      ],
      "reached_at_route_steps": [
       71,
-      81
+      71
      ],
      "background": 1,
      "example_tile": [
@@ -10749,130 +10637,17 @@
    "world": 0,
    "terrains": [
     {
-     "terrain": 0,
-     "group_index": 92,
-     "random_group": 4,
-     "rate": "normal",
-     "tiles_visited": 20,
-     "vehicles": [
-      "hiryuu"
-     ],
-     "reached_at_route_steps": [
-      81,
-      81
-     ],
-     "background": 0,
-     "example_tile": [
-      224,
-      81
-     ],
-     "random_battles": [
-      {
-       "chance": 0.3516,
-       "battle": 25,
-       "boss": false,
-       "no_run": false,
-       "monsters": [
-        {
-         "id": 14,
-         "name": "Gatlings",
-         "count": 1
-        }
-       ],
-       "flags": 0,
-       "intro": 0,
-       "flee": 100,
-       "ap": 1,
-       "music": 0,
-       "raw": "006401800effffffffffffff00000000"
-      },
-      {
-       "chance": 0.3516,
-       "battle": 26,
-       "boss": false,
-       "no_run": false,
-       "monsters": [
-        {
-         "id": 14,
-         "name": "Gatlings",
-         "count": 2
-        },
-        {
-         "id": 15,
-         "name": "Bighorn",
-         "count": 1
-        }
-       ],
-       "flags": 0,
-       "intro": 0,
-       "flee": 100,
-       "ap": 1,
-       "music": 0,
-       "raw": "006401e00e0e0fffffffffff04000000"
-      },
-      {
-       "chance": 0.2344,
-       "battle": 27,
-       "boss": false,
-       "no_run": false,
-       "monsters": [
-        {
-         "id": 16,
-         "name": "Tatu",
-         "count": 2
-        }
-       ],
-       "flags": 0,
-       "intro": 0,
-       "flee": 100,
-       "ap": 1,
-       "music": 0,
-       "raw": "006401c01010ffffffffffff00000000"
-      },
-      {
-       "chance": 0.0625,
-       "battle": 28,
-       "boss": false,
-       "no_run": false,
-       "monsters": [
-        {
-         "id": 15,
-         "name": "Bighorn",
-         "count": 1
-        },
-        {
-         "id": 14,
-         "name": "Gatlings",
-         "count": 1
-        },
-        {
-         "id": 16,
-         "name": "Tatu",
-         "count": 1
-        }
-       ],
-       "flags": 0,
-       "intro": 0,
-       "flee": 100,
-       "ap": 1,
-       "music": 0,
-       "raw": "006401e00f0e10ffffffffff18000000"
-      }
-     ]
-    },
-    {
      "terrain": 1,
      "group_index": 93,
      "random_group": 4,
      "rate": "normal",
-     "tiles_visited": 11,
+     "tiles_visited": 4,
      "vehicles": [
-      "on foot",
-      "hiryuu"
+      "on foot"
      ],
      "reached_at_route_steps": [
       71,
-      81
+      71
      ],
      "background": 1,
      "example_tile": [
