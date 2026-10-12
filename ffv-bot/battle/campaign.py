@@ -492,6 +492,7 @@ class Campaign:
                 # simulate the previous region until every member got a power boost
                 before = self.party_power()
                 gi = max(0, idx - 1)
+                while gi > 0 and not schedule(self.stages[gi]): gi -= 1       # a stage without fights cannot give power: grind the last one that has some
                 self.grind(gi, before)
                 self.go_shopping(idx)
                 self.save(idx - 1)                            # checkpoint: a restart resumes this stage with the boosted party
