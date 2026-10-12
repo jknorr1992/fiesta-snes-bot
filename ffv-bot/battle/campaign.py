@@ -46,10 +46,10 @@ SLOT_NAMES = ("Bartz", "Lenna", "Galuf", "Faris")
 
 # ------------------------------------------------------------------ battle workers
 _W = {}
-def _init(rom_path, policy="tactical", boss_deaths=False):
+def _init(rom_path, policy="tactical", boss_deaths=False, latency=0):
     from sim import BattleSim
     rom = open(rom_path, "rb").read()
-    _W["sim"] = BattleSim(rom); _W["data"] = GameData(rom); _W["policy"] = policy; _W["boss_deaths"] = boss_deaths
+    _W["sim"] = BattleSim(rom); _W["sim"].latency = latency; _W["data"] = GameData(rom); _W["policy"] = policy; _W["boss_deaths"] = boss_deaths
 
 def _policy(d, enc, all_out=False):
     if _W.get("policy") == "smart": return SmartPolicy(d)
@@ -345,7 +345,7 @@ class Campaign:
         self.jobs = dict(DEFAULT_JOBS)
         self.js = JobSwitcher(self.d)
         if a.jobs_spec: self.jobs.update(json.load(open(a.jobs_spec)))
-        self.pool = Pool(a.jobs, initializer=_init, initargs=(a.rom, a.policy, a.boss_deaths))
+        self.pool = Pool(a.jobs, initializer=_init, initargs=(a.rom, a.policy, a.boss_deaths, a.input_latency))
         self.fight_log = []; self.log = []; self.t0 = time.time(); self.fights_run = 0; self.tents = 0
         os.makedirs(a.out, exist_ok=True)
         self.state = self.new_state()
@@ -587,7 +587,7 @@ class Campaign:
                     log = []; equip_owned(self.state, self.d, log)
                     self.say(f"   chest {ck} opened ({info['name']}, {info.get('frames', 0)} frames): {got}" + (" | " + "; ".join(log) if log else ""))
                     if base + used > budget:
-                        self.say(f"   CASTLE TIMER: {base + used} frames of fighting > {budget}: Castle Karnak explodes, back to just after Liquid Flame")
+                        self.say(f"   CASTLE TIMER: {base + used} frames of fighting > {budget}: Castle Karnak explodes: game over")
                         return False, dict(info, timer=True, used=base + used)
                 chests = []
             if enc == LIQUID_FLAME and not timed:          # the game over of the escape comes back to this point: the party just before Liquid Flame
@@ -598,7 +598,7 @@ class Campaign:
             if ok and timed:
                 used += info.get("frames", 0); done += 1; self.castle_used = base + used
                 if base + used > budget:
-                    self.say(f"   CASTLE TIMER: {base + used} frames of fighting > {budget}: Castle Karnak explodes, back to just after Liquid Flame")
+                    self.say(f"   CASTLE TIMER: {base + used} frames of fighting > {budget}: Castle Karnak explodes: game over")
                     info = dict(info, timer=True, used=base + used); return False, info
             if not ok:
                 open(os.path.join(self.a.out, f"fail_{enc}_{self.fights_run}.bin"), "wb").write(self.state.to_wram())
@@ -850,6 +850,7 @@ def main():
     ap.add_argument("--jobs", type=int, default=None, help="worker processes")
     ap.add_argument("--runs", type=int, default=64, help="battles per fight batch")
     ap.add_argument("--flawless", type=float, default=0.95)
+    ap.add_argument("--input-latency", type=int, default=24, help="frames a player needs to enter a Fight command through the battle menu (measured best case with 1-frame button taps: 24; Item and other commands +6); 0 = commands are instant")
     ap.add_argument("--no-reassign", dest="reassign", action="store_false", help="do not try other job assignments when a boss batch fails")
     ap.add_argument("--steps-per-map", type=int, default=80, help="steps walked on each local map (for the number of random encounters)")
     ap.add_argument("--castle-frames", type=int, default=CASTLE_FRAMES, help="frame budget for the fights of Castle Karnak after Liquid Flame")

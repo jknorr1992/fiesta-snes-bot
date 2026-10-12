@@ -102,6 +102,8 @@ class BattleSim:
         self._open_hook = -1
         self.direct = None         # callable(sim, char) -> Command | None: bypass the real menu (see set_direct)
         self._close_menu = False; self._reset_cd42 = False; self._enforce = None
+        self.latency = 0            # frames between a menu opening and the (direct) command being entered; 0 = instant
+        self._pending = None
         self.hold = 0               # buttons held every frame when no tap is queued (e.g. L|R to run away)
         self.log = []
 
@@ -158,9 +160,9 @@ class BattleSim:
     def dump_wram(self): return bytes(self.m.wram)
 
     # ---- machine state snapshots (CPU + WRAM + timing); cheap (130 KB)
-    def snapshot(self): return (self.m.clone(), self.frame, self.running, list(self.pad_queue), self._close_menu, self._reset_cd42, None if self._enforce is None else bytes(self._enforce))
+    def snapshot(self): return (self.m.clone(), self.frame, self.running, list(self.pad_queue), self._close_menu, self._reset_cd42, None if self._enforce is None else bytes(self._enforce), self._pending)
     def restore(self, snap):
-        m, self.frame, self.running, pq, self._close_menu, self._reset_cd42, enf = snap
+        m, self.frame, self.running, pq, self._close_menu, self._reset_cd42, enf, self._pending = snap
         self._enforce = None if enf is None else bytearray(enf)
         self.m.copy_from(m); self.pad_queue = list(pq)
 
@@ -173,7 +175,7 @@ class BattleSim:
         m.setreg(cpu.R_S, 0x1FFF); m.setreg(cpu.R_P, 0x24); m.setreg(cpu.R_D, 0); m.setreg(cpu.R_DB, 0x7E)
         m.setreg(cpu.R_E, 0)
         if not self.spc: m.reset_hw()          # same hardware phase as a fresh sim, so a reused BattleSim reproduces fresh-sim results frame for frame
-        m.joy(0, 0); self.pad_queue = []; self._close_menu = False; self._reset_cd42 = False; self._enforce = None; self._enforce = None
+        m.joy(0, 0); self.pad_queue = []; self._pending = None; self._close_menu = False; self._reset_cd42 = False; self._enforce = None; self._enforce = None
         m.call_long(EXEC_BATTLE, SENTINEL)
         self.running = True; self.frame = 0
 
@@ -196,7 +198,17 @@ class BattleSim:
         cmd = self.direct(self, char) if (self.direct and self.rb(0x71) == 0 and char < 4) else None
         if cmd is None:
             self.m.skip_hook(); return                      # run the real routine
+        if self.latency > 0:
+            # a player needs time to press the buttons (measured: the menu ignores input for its first ~9 frames, Fight + target takes 24 frames
+            # with 1-frame taps): the real menu opens and the command is entered `latency` frames later
+            self.log.append((self.frame, "direct+latency", char, repr(cmd)))
+            self._pending = (self.frame + self.latency + (0 if cmd.command == CMD_FIGHT else 6), char, cmd)     # Item took 30 frames in the pad measurement, Fight 24
+            self.m.skip_hook(); return
         self.log.append((self.frame, "direct", char, repr(cmd)))
+        self._write_command(char, cmd)
+        self._rts()
+
+    def _write_command(self, char, cmd):
         w = self.w
         w[0x41B1], w[0x41B2], w[0x41B3] = cmd.action, cmd.command, char
         w[0x41B4], w[0x41B5], w[0x41B6] = cmd.monsters, cmd.party, cmd.selected
@@ -206,7 +218,6 @@ class BattleSim:
             w[0x41B8], w[0x41B9], w[0x41BA], w[0x41BB], w[0x41BC], w[0x41BD] = c2.action, c2.command, char, c2.monsters, c2.party, c2.selected
         w[0x41B0] = 1; w[0x41B7] = 1; w[0xCD41] = 1; w[0xCD42] = char; w[0x010D] = char
         self._close_menu = True; self._enforce = bytearray(w[0x41B0:0x41BE])
-        self._rts()
 
     def _run(self, frames):
         while True:
@@ -227,6 +238,8 @@ class BattleSim:
         """Advance by `frames` video frames (queued pad input is applied one frame at a time)."""
         for _ in range(frames):
             if not self.running: return
+            if self._pending is not None and self.frame >= self._pending[0] and self.rb(MENU_C1) == 1 and self.rb(DISPLAY_CUR) == self._pending[1]:
+                _, pc, pcmd = self._pending; self._pending = None; self._write_command(pc, pcmd)
             if self._close_menu and self.w[0x41BE] == 1 and self.m.pc24 not in WAIT_MENU_PCS:      # keep the menu open until the main loop has copied it (MenuDataC1 -> MenuData, 41BE=open) and left WaitMenu3 (C2:18F9); closing it earlier made the battle process a stale command
                 w = self.w; w[0x41B0] = 0; w[0x41B7] = 0; w[0xCD41] = 0; self._close_menu = False; self._reset_cd42 = True
                 if self._enforce is not None: self._enforce[0] = 0; self._enforce[7] = 0
