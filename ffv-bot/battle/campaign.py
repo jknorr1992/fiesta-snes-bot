@@ -858,6 +858,7 @@ class Campaign:
                 if info.get("timer") and self.before_liquid:
                     self.game_over(); reverted = True; break
                 self.state = Field.from_wram(snap, self.d)       # the failed fight does not count; back to the start of the pass
+                if not info.get("timer") and idx not in self.timed: self.plan_jobs(idx, hard=True, why="after a failed pass")
                 if attempts > self.a.max_attempts:
                     self.say("   STUCK: giving up at this stage"); report.append(dict(stage=idx, name=label, status="stuck", info=info))
                     return self.finish(report, stuck=idx)

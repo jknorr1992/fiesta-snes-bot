@@ -16,7 +16,8 @@ import itertools
 import json
 import os
 
-ROLES = ("front", "nuker", "healer", "support")
+ROLES = ("front", "nuker", "healer", "flex")          # flex: a second damage dealer, or a buffer / debuffer when the job is good at it
+FLEX_DAMAGE = 0.85                                     # a second front-liner / nuker is worth this much of a first one
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 # What each job is for, 0-10 per role (veteran knowledge, before the game state is looked at).
@@ -144,6 +145,8 @@ class Planner:
 
     # ---- fit of a job for a role from the member's real numbers
     def fit(self, role, job, facts, fs):
+        if role == "flex":
+            return max(FLEX_DAMAGE * self.fit("front", job, facts, fs), FLEX_DAMAGE * self.fit("nuker", job, facts, fs), 0.9 * self.fit("support", job, facts, fs))
         base = FIT.get(job, {}).get(role, 0)
         if not base: return 0.0
         if role == "nuker":
@@ -176,10 +179,10 @@ class Planner:
             F[role], L[role] = {}, {}
             raw = {}
             for j in jobs:
-                if (role, j) in avoid or not facts[j] or not FIT[j].get(role): continue
+                if (role, j) in avoid or not facts[j] or not any(FIT[j].get(r) for r in (("front", "nuker", "support") if role == "flex" else (role,))): continue
                 for m, f in facts[j].items():
                     fit = self.fit(role, j, f, fs)
-                    if role == "front": fit *= 0.6 + 0.4 * min(1.0, (f["str"] + f["vit"]) / 100.0)
+                    if role == "front" or role == "flex": fit *= 0.6 + 0.4 * min(1.0, (f["str"] + f["vit"]) / 100.0) if role == "front" or FIT[j].get("front", 0) >= FIT[j].get("nuker", 0) else 1.0
                     raw[(m, j)] = (fit / 10.0, self.learn_value(wram, m, j))
             top_lv = max((v[1] for v in raw.values()), default=0.0)
             for k, (fit, lv) in raw.items():
