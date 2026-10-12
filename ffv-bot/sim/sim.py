@@ -227,7 +227,7 @@ class Sim:
         return self.arrive(n, False, depth + 1)
 
     def _arrive_world(self, s, stepped, depth):
-        allowed = s.veh in (0, 1, 5)
+        allowed = s.veh in (0, 1, 5) or s.map >= 3        # CheckTriggers: only maps 0-2 skip triggers for other vehicles
         if allowed:
             ts = self.trig_at(s.map).get((s.x, s.y))
             if ts is not None:
@@ -415,7 +415,7 @@ class Sim:
     def _world_arrival_kind(self, s, vt, x, y, d, vehicle_tiles):
         """('event'|'entrance'|'board'|'hook', info) if arriving at world tile (x, y) walking in direction d fires something"""
         face = FACE_OF_DIR[d]
-        if s.veh in (0, 1, 5):
+        if s.veh in (0, 1, 5) or s.map >= 3:
             ts = self.trig_at(s.map).get((x, y))
             if ts is not None:
                 ev = self.pick(s, self.R.trigger_script(ts), face, False)

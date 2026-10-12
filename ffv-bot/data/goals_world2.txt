@@ -5,3 +5,8 @@ flag:302 map:265 map:361 map:291
 # 265 = Castle of Bal, 281/282/283 = Quelb (event 244, talk npc 3 event 243, event 794), 291 = Drakenvale entrance
 # Dragon Valley (verified live): map 291 caves -> 295/292/293/296. Event 769 at map 295 (8,61) (reached via 292 (42,27) entrance) lifts to map 293; Dragon Grass = stand (31,38) on map 296 facing up + A (flag 165); then flag:102 (map 294 (19,21)) and flag:285 (Bal gate event 1078 at map 265 (20,44)).
 flag:165 flag:102 flag:285
+
+# Bal / Surgate / fleet / Zeza's flagship (live-verified, see docs/live_route_progress.md)
+# flags 408 256 103 (Bal), map:299 map:300 flag:257 flag:230 (Surgate), flag:489 flag:510 (fleet event 251), flag:109 flag:193 (flagship, warp to map 343)
+# flagship exit: map 343 (13,12) event 861 -> sub dock map 330 -> NPC 216 (flag 110) -> map:331 Barrier Tower, flag:111, then maps 329 328 334 335 336 337 338 339 340 341 342 (event 264 Atomos)
+# afterwards event 867 at map 343 (13,12) puts the party in the submarine on map 3; A dives/surfaces; map 3 (112,101) event 248 -> ship (flag 192) -> map 343 (13,12) event 1235 -> map 344 dock -> map 345
