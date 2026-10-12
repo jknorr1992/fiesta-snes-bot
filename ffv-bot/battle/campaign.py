@@ -34,6 +34,8 @@ from knowledge import Bestiary
 from sim import L, R, Command
 
 TENT = "Tent"
+LIQUID_FLAME = 444
+CASTLE_FRAMES = 18000       # user (2026-10-12): fighting in the exploding Castle Karnak may take at most 18000 frames, else game over -> back to just after Liquid Flame
 STEPS_BETWEEN = {"normal": 24, "low": 48, "high": 12, "very high": 6}
 SUBS = ("Shop", "Inn", "Tavern", "Jail", "Storage", "Throne Room", "King's Room", "Queen's Room", "Lenna's Room", "Rooftop", "Grand Hall", "Sealed Room", "House")
 DEFAULT_JOBS = {"Bartz": "Knight", "Lenna": "WhiteMage", "Galuf": "Monk", "Faris": "BlackMage"}
@@ -335,6 +337,11 @@ class Campaign:
         os.makedirs(a.out, exist_ok=True)
         self.state = self.new_state()
         self.jobs_unlocked = False; self.faris_in = False; self.looted = set()
+        liquid = [i for i, st in enumerate(self.stages) if any(f["kind"] == "scripted" and any(b == LIQUID_FLAME for b, _ in f["battles"]) for f in st["fights"])]
+        self.liquid_idx = liquid[0] if liquid else None
+        # Castle Karnak after Liquid Flame is on a 10 minute self-destruct timer; the user budgets 5 minutes of fighting (frames) in it
+        self.timed = {i for i, st in enumerate(self.stages) if self.liquid_idx is not None and i > self.liquid_idx and st["name"] == "Castle Karnak"}
+        self.after_liquid = None; self._frames = 0; self.rush = False
 
     # ---- party
     def new_state(self):
@@ -423,6 +430,7 @@ class Campaign:
     def adopt(self, runs):
         """The batch's average result becomes the party state: the run whose exp is closest to the mean, HP/MP the mean, gil start + mean."""
         mean_exp = sum(sum(r["exp"]) for r in runs) / len(runs)
+        self._frames = round(sum(r["frames"] for r in runs) / len(runs))
         rep = min(runs, key=lambda r: abs(sum(r["exp"]) - mean_exp))
         f = Field.from_wram(rep["wram"], self.d)
         for i in range(4):
@@ -442,13 +450,13 @@ class Campaign:
         """One fight as a batch.  Returns (counted, summary).  Advances self.state to the batch's average result when it counts.
         A random fight that cannot be won flawlessly may be run away from (hold L+R) if that works 95% of the time without a death."""
         b = self.d.battle(enc)
-        at_cap = bool(self.a.max_level) and self.top_level() >= self.a.max_level
+        at_cap = (bool(self.a.max_level) and self.top_level() >= self.a.max_level) or self.rush
         if (self.a.flee_first or at_cap) and not scripted and not b["no_run"] and not b["boss"]:       # at the level cap more experience is worth nothing: run
             fl = self.batch(enc, bg, runs, "flee"); self.fights_run += 1          # least experience: run from every fight that can be run from safely
             ok = [r for r in fl if r["flawless"]]
             if len(ok) / len(fl) >= self.a.flawless:
                 info = dict(battle=enc, name=self.d.battle_summary(enc).split(": ", 1)[-1], rate=0, flee_rate=round(len(ok) / len(fl), 3), map=str(label), fled=True)
-                info["exp"] = self.adopt(ok); return True, info
+                info["exp"] = self.adopt(ok); info["frames"] = self._frames; return True, info
         res = self.batch(enc, bg, runs)
         self.fights_run += 1
         flawless = [r for r in res if r["flawless"]]
@@ -456,29 +464,41 @@ class Campaign:
         name = self.d.battle_summary(enc).split(": ", 1)[-1]
         info = dict(battle=enc, name=name, rate=round(rate, 3), map=str(label))
         if rate >= self.a.flawless:
-            info["exp"] = self.adopt(flawless); return True, info
+            info["exp"] = self.adopt(flawless); info["frames"] = self._frames; return True, info
         b = self.d.battle(enc)
         if not scripted and not b["no_run"] and not b["boss"] and self.a.flee:
             fl = self.batch(enc, bg, runs, "flee"); self.fights_run += 1
             ok = [r for r in fl if r["flawless"]]
             info["flee_rate"] = round(len(ok) / len(fl), 3)
             if len(ok) / len(fl) >= self.a.flawless:
-                info["exp"] = self.adopt(ok); info["fled"] = True; return True, info
+                info["exp"] = self.adopt(ok); info["fled"] = True; info["frames"] = self._frames; return True, info
         return False, info
 
     def top_level(self):
         return max(self.state.character(i).level for i in range(4) if self.state.character(i).in_party)
 
-    def run_pass(self, stage, offset, who, random_only=False):
-        """One pass over a stage's fights.  Returns (ok, failed_fight_info)."""
+    def run_pass(self, stage, offset, who, random_only=False, timed=False):
+        """One pass over a stage's fights.  Returns (ok, failed_fight_info).  `timed`: the stage is on the Castle Karnak self-destruct
+        clock: fights are run away from (when that is safe) once the average pace would overrun CASTLE_FRAMES; a pass whose fights
+        take more frames than that is a game over (info['timer'])."""
         fights = schedule(stage, offset, random_only)
-        mid = len(fights) // 2
+        mid = len(fights) // 2; used = 0; done = 0
         for k, (enc, bg, label, scripted) in enumerate(fights):
+            self.rush = False
+            if timed and done:
+                pace = used / done
+                self.rush = used + pace * (len(fights) - k) > self.a.castle_frames          # at this pace the castle blows up: run from what can be run from
             if stage["kind"] == "world" and self.hp_fraction() < 0.6 and self.heal("world"): pass
             if stage["dungeon"] and k == mid and k > 0 and self.hp_fraction() < 0.8 and self.heal("save point"): pass
             if scripted and stage["kind"] == "local": self.heal("before boss")        # a player rests / saves before a boss: HP and MP full (one Tent)
             ok, info = self.fight(enc, bg, label, 2 * self.a.runs if scripted else self.a.runs, scripted)
+            self.rush = False
             self.fight_log.append(dict(stage=stage["name"], **info, counted=ok))
+            if ok and timed:
+                used += info.get("frames", 0); done += 1
+                if used > self.a.castle_frames:
+                    self.say(f"   CASTLE TIMER: {used} frames of fighting > {self.a.castle_frames}: Castle Karnak explodes, back to just after Liquid Flame")
+                    info = dict(info, timer=True, used=used); return False, info
             if not ok:
                 open(os.path.join(self.a.out, f"fail_{enc}_{self.fights_run}.bin"), "wb").write(self.state.to_wram())
                 return False, info
@@ -507,7 +527,7 @@ class Campaign:
             top = max(m for st in self.stages[:idx + 1] for m in st["maps"]) if any(st["maps"] for st in self.stages[:idx + 1]) else 0
             maps |= {m for m in self.shops.maps if m <= top}
         stock = self.shops.stock(maps)
-        reserve = self.shops.tent_price
+        reserve = 3 * self.shops.tent_price          # keep three Tents' worth for healing (a broke party cannot rest and fails every later fight)
         log = []
         equip_owned(self.state, self.d, log)
         shop(self.state, stock, self.shops, self.d, reserve, self.jobs if self.jobs_unlocked else {}, log, self.element_weights(idx))
@@ -576,6 +596,8 @@ class Campaign:
         if self.a.resume and os.path.exists(sj):
             j = json.load(open(sj)); idx = j["stage"] + 1; self.jobs_unlocked = j["jobs_unlocked"]; self.faris_in = j["faris_in"]; self.tents = j["tents"]; self.looted = set(j.get("looted", []))
             self.state = Field.from_wram(open(os.path.join(self.a.out, "state.bin"), "rb").read(), self.d)
+            al = os.path.join(self.a.out, "after_liquid.bin")
+            if os.path.exists(al): self.after_liquid = open(al, "rb").read()
             self.say(f"resumed after stage {idx - 1} | {self.summary_line()}")
         while idx < len(self.stages) and (self.a.until is None or idx <= self.a.until):
             st = self.stages[idx]; self.cur_idx = idx
@@ -588,13 +610,14 @@ class Campaign:
             attempts = 0
             while True:
                 snap = (self.state.to_wram())
-                ok, info = self.run_pass(st, attempts, label)
+                ok, info = self.run_pass(st, attempts, label, timed=idx in self.timed)
                 if self.a.max_level and self.top_level() > self.a.max_level:
                     self.say(f"   LEVEL CAP {self.a.max_level} exceeded (level {self.top_level()}) in {label}: challenge failed")
                     report.append(dict(stage=idx, name=label, status="level cap exceeded")); return self.finish(report, stuck=idx)
                 if ok: break
                 self.say(f"   fight did not count: {info['name']} at {info['map']}: flawless {info['rate']:.0%} < {self.a.flawless:.0%}")
                 attempts += 1
+                if info.get("timer") and self.after_liquid: snap = self.after_liquid       # game over: the party is as it was right after Liquid Flame
                 self.state = Field.from_wram(snap, self.d)       # the failed fight does not count; back to the start of the pass
                 if attempts > self.a.max_attempts:
                     self.say("   STUCK: giving up at this stage"); report.append(dict(stage=idx, name=label, status="stuck", info=info))
@@ -602,10 +625,12 @@ class Campaign:
                 # simulate the previous region until every member got a power boost
                 before = self.party_power()
                 gi = max(0, idx - 1)
-                while gi > 0 and n_random(self.stages[gi]) < 3: gi -= 1       # grind the nearest earlier stage with a few random fights (a boss stage would just re-fight the boss)
-                if n_random(self.stages[gi]) < 3:
+                def usable(g):       # Castle Karnak blows up after Iron Claw (user, 2026-10-12): its fights can never be simulated again
+                    return not (self.timed and idx >= min(self.timed) and self.stages[g]["name"] == "Castle Karnak")
+                while gi > 0 and (n_random(self.stages[gi]) < 3 or not usable(gi)): gi -= 1       # grind the nearest earlier stage with a few random fights (a boss stage would just re-fight the boss)
+                if n_random(self.stages[gi]) < 3 or not usable(gi):
                     gi = max(0, idx - 1)
-                    while gi > 0 and not schedule(self.stages[gi]): gi -= 1
+                    while gi > 0 and (not schedule(self.stages[gi]) or not usable(gi)): gi -= 1
                 self.grind(gi, before)
                 if self.a.max_level and self.top_level() > self.a.max_level:
                     self.say(f"   LEVEL CAP {self.a.max_level} exceeded (level {self.top_level()}) while grinding for {label}: challenge failed")
@@ -616,6 +641,8 @@ class Campaign:
             self.go_shopping(idx)
             if st["name"] == "West Valley" and not self.faris_in: self.add_faris()
             if st["name"] == "Wind Crystal" and not self.jobs_unlocked: self.unlock_jobs(); self.go_shopping(idx)
+            if idx == self.liquid_idx:
+                self.after_liquid = self.state.to_wram(); open(os.path.join(self.a.out, "after_liquid.bin"), "wb").write(self.after_liquid)
             self.say(f"   region done after {attempts} failed attempt(s) | {self.summary_line()}")
             report.append(dict(stage=idx, name=label, status="done", attempts=attempts, party=self.summary_line()))
             self.save(idx)
@@ -653,6 +680,7 @@ def main():
     ap.add_argument("--runs", type=int, default=64, help="battles per fight batch")
     ap.add_argument("--flawless", type=float, default=0.95)
     ap.add_argument("--steps-per-map", type=int, default=80, help="steps walked on each local map (for the number of random encounters)")
+    ap.add_argument("--castle-frames", type=int, default=CASTLE_FRAMES, help="frame budget for the fights of Castle Karnak after Liquid Flame")
     ap.add_argument("--max-attempts", type=int, default=12); ap.add_argument("--max-grind-passes", type=int, default=40)
     ap.add_argument("--encounters", default=os.path.join(ROOT, "data", "encounters_by_region.json"))
     ap.add_argument("--reached", default=os.path.join(ROOT, "data", "reached_regions.json"))
