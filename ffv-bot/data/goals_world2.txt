@@ -10,3 +10,9 @@ flag:165 flag:102 flag:285
 # flags 408 256 103 (Bal), map:299 map:300 flag:257 flag:230 (Surgate), flag:489 flag:510 (fleet event 251), flag:109 flag:193 (flagship, warp to map 343)
 # flagship exit: map 343 (13,12) event 861 -> sub dock map 330 -> NPC 216 (flag 110) -> map:331 Barrier Tower, flag:111, then maps 329 328 334 335 336 337 338 339 340 341 342 (event 264 Atomos)
 # afterwards event 867 at map 343 (13,12) puts the party in the submarine on map 3; A dives/surfaces; map 3 (112,101) event 248 -> ship (flag 192) -> map 343 (13,12) event 1235 -> map 344 dock -> map 345
+
+# Moore -> Guardian Tree -> Wind Drake -> Castle Exdeath -> world 3 (live-verified 2026-10-12)
+# sub to Moore lake (dive, surface at (26-27,114-116)), map:350 Moore, world trigger (35,116) event 1272 -> forest map 356, burn event 269 (flag 492), Guardian Tree scene (flag 116) -> Wind Drake
+# Castle Exdeath (map 225) 2nd visit: 225 -> 227 -> 228 (events 224/225) -> 236 -> 240 -> 241 -> 242 -> 243 (event 1280) -> 276 -> 244 -> 245 -> 255 (10F)
+# 10F puzzle: the 255/245 pockets are linked by entrances; stepping on (21,35) (event 1307) opens the diamond; walk (26,34)->(26,32)->(25,32)->(25,31) (event 1306) to the save point (14,33); (14,36) -> 245 (42,8) -> (42,10) event 1305 -> 245 (46,4); then 245 (45,8) -> 255 (17,36) ... (21,35) -> diamond bottom (25,39) event 1308 -> entrance (21,41) -> 276 (52,53) -> (50,51) -> map 256 -> 257 -> 258, event 1310 at (52,12) (Gilgamesh/Exdeath scene) lands on world 3 (map 2) at (183,137), flag 121
+map:256 map:258 flag:121
