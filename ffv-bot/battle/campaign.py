@@ -402,7 +402,7 @@ class Campaign:
         self.jobs = dict(DEFAULT_JOBS)
         self.js = JobSwitcher(self.d, worst=a.worst_char)
         self.supported = supported_commands(a.allow_commands)
-        self._cures = {}; self.field_casts = 0; self.field_potion_uses = 0
+        self._cures = {}; self.field_casts = 0; self.field_potion_uses = 0; self.ailment_fights = 0
         self.avail = set(); self.comfort = 0.5; self.unlocks = load_unlocks(); self._probes = {}
         if a.jobs_spec: self.jobs.update(json.load(open(a.jobs_spec)))
         self.pool = Pool(a.jobs, initializer=_init, initargs=(a.rom, a.policy, a.boss_deaths, a.input_latency, forbidden_commands(a.allow_commands)))
@@ -777,6 +777,9 @@ class Campaign:
             ch.hp = min(ch.max_hp, max(1, round(sum(hps) / len(hps)))); ch.mp = min(ch.max_mp, round(sum(mps) / len(mps)))
             f.set_character(i, ch)
         f.gil = self.state.gil + round(sum(r["gil"] for r in runs) / len(runs))
+        for i in range(4):          # ailments the ROM's own battle end leaves on the field character (Blind, Mini, Zombie ...) stay until something cures them
+            ch = f.character(i)
+            if ch.in_party and (ch.status1 | ch.status2 | ch.status3 | ch.status4): self.ailment_fights += 1; self.say(f"   carrying an ailment: {SLOT_NAMES[i]} status {ch.status1:02x} {ch.status2:02x} {ch.status3:02x} {ch.status4:02x}")
         self.state = f
         return round(mean_exp)
 
