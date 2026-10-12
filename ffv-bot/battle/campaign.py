@@ -151,6 +151,15 @@ def chests(d, m):
         else: out.append((k, "item", b3))
     return out
 
+def box_chests(d, m):
+    """[(treasure index, event battle group, is_spell, id)] of the monster-in-a-box chests of map m (field-main.asm CheckTreasure: bit 7 of
+    the chest's third byte; group = low 6 bits | 0x40, bit 6 = the prize is a spell instead of an item, the fourth byte is the item / spell id)."""
+    r = d.r; out = []
+    for k in range(r[TREASURE_MAP + m], r[TREASURE_MAP + m + 1]):
+        b2, b3 = r[TREASURE_PROP + 4 * k + 2], r[TREASURE_PROP + 4 * k + 3]
+        if b2 & 0x80: out.append((k, (b2 & 0x3F) | 0x40, bool(b2 & 0x40), b3))
+    return out
+
 def equip_owned(state, d, log):
     """Wear the best owned (looted / dropped) gear: per member and slot the owned piece with the biggest gear-score gain; the old piece goes back to the bag."""
     items = state.items()
@@ -346,7 +355,7 @@ class Campaign:
             if self.liquid_idx is not None and i < self.liquid_idx and st["name"] == "Castle Karnak": st["fights"] = []
         # Castle Karnak after Liquid Flame is on a 10 minute self-destruct timer; the user budgets 5 minutes of fighting (frames) in it
         self.timed = {i for i, st in enumerate(self.stages) if self.liquid_idx is not None and i > self.liquid_idx and st["name"] == "Castle Karnak"}
-        self.after_liquid = None; self._frames = 0; self.rush = False
+        self.after_liquid = None; self._frames = 0; self.rush = False; self.castle_used = 0; self.castle_heal_zone = True
 
     # ---- party
     def new_state(self):
@@ -494,7 +503,7 @@ class Campaign:
         self.state = f
         return round(mean_exp)
 
-    def fight(self, enc, bg, label, runs, scripted=False):
+    def fight(self, enc, bg, label, runs, scripted=False, optional=False):
         """One fight as a batch.  Returns (counted, summary).  Advances self.state to the batch's average result when it counts.
         A random fight that cannot be won flawlessly may be run away from (hold L+R) if that works 95% of the time without a death."""
         b = self.d.battle(enc)
@@ -513,7 +522,7 @@ class Campaign:
         info = dict(battle=enc, name=name, rate=round(rate, 3), map=str(label))
         if rate >= self.a.flawless:
             info["exp"] = self.adopt(flawless); info["frames"] = self._frames; return True, info
-        if scripted and self.jobs_unlocked and not self.rush and self.a.reassign:
+        if scripted and not optional and self.jobs_unlocked and not self.rush and self.a.reassign:
             got = self.reorganize(enc, bg, label, runs, rate)
             if got:
                 info.update(got); return True, info
@@ -539,25 +548,49 @@ class Campaign:
         take more frames than that is a game over (info['timer'])."""
         fights = schedule(stage, offset, random_only)
         mid = len(fights) // 2; used = 0; done = 0
+        base = self.castle_used if timed else 0           # frames of fighting already spent in this visit of the exploding castle
+        budget = self.a.castle_frames
+        chests = [] if (not timed or random_only) else [c for m in stage["maps"] for c in box_chests(self.d, m) if c[0] not in self.looted]
         for k, (enc, bg, label, scripted) in enumerate(fights):
             self.rush = False
             if timed and done:
                 pace = used / done
-                self.rush = used + pace * (len(fights) - k) > self.a.castle_frames          # at this pace the castle blows up: run from what can be run from
+                self.rush = base + used + pace * (len(fights) - k) > budget          # at this pace the castle blows up: run from what can be run from
             if timed:       # exploding Castle Karnak (user, 2026-10-12): one free full heal zone at the start, nowhere to use a Tent; everything else is items / spells
-                if k == 0 and self.heal("castle heal zone", 0): self.tents -= 1
+                if k == 0 and self.castle_heal_zone:
+                    if self.heal("castle heal zone", 0): self.tents -= 1
+                    self.castle_heal_zone = False
             else:
                 if stage["kind"] == "world" and self.hp_fraction() < 0.6 and self.heal("world"): pass
                 if stage["dungeon"] and k == mid and k > 0 and self.hp_fraction() < 0.8 and self.heal("save point"): pass
                 if scripted and stage["kind"] == "local": self.heal("before boss")        # a player rests / saves before a boss: HP and MP full (one Tent)
+            if timed and k == 0:                           # every chest opened in the escape fights a monster-in-a-box first; worth it only if the budget allows and the batch passes
+                for (ck, grp, is_spell, val) in list(chests):
+                    est = (used / done) if done else 1500
+                    if base + used + est * (len(fights) + 1) > budget: continue
+                    benc = self.d.event_battle(grp)[0]
+                    ok, info = self.fight(benc, bg, f"chest {ck}", self.a.runs, scripted=True, optional=True)
+                    self.fight_log.append(dict(stage=stage["name"], chest=ck, **info, counted=ok))
+                    if not ok:
+                        self.say(f"   chest {ck} left closed: {info['name']} flawless {info['rate']:.0%} < {self.a.flawless:.0%}"); continue
+                    used += info.get("frames", 0); self.castle_used = base + used
+                    self.looted.add(ck); items = self.state.items()
+                    if is_spell: self.state.wram[MAGIC_BITS + (val >> 3)] |= 0x80 >> (val & 7); got = f"spell {self.d.spell_name(val)}"
+                    else: items[val] = min(99, items.get(val, 0) + 1); self.state.set_items(items); got = self.d.item_name(val)
+                    log = []; equip_owned(self.state, self.d, log)
+                    self.say(f"   chest {ck} opened ({info['name']}, {info.get('frames', 0)} frames): {got}" + (" | " + "; ".join(log) if log else ""))
+                    if base + used > budget:
+                        self.say(f"   CASTLE TIMER: {base + used} frames of fighting > {budget}: Castle Karnak explodes, back to just after Liquid Flame")
+                        return False, dict(info, timer=True, used=base + used)
+                chests = []
             ok, info = self.fight(enc, bg, label, 2 * self.a.runs if scripted else self.a.runs, scripted)
             self.rush = False
             self.fight_log.append(dict(stage=stage["name"], **info, counted=ok))
             if ok and timed:
-                used += info.get("frames", 0); done += 1
-                if used > self.a.castle_frames:
-                    self.say(f"   CASTLE TIMER: {used} frames of fighting > {self.a.castle_frames}: Castle Karnak explodes, back to just after Liquid Flame")
-                    info = dict(info, timer=True, used=used); return False, info
+                used += info.get("frames", 0); done += 1; self.castle_used = base + used
+                if base + used > budget:
+                    self.say(f"   CASTLE TIMER: {base + used} frames of fighting > {budget}: Castle Karnak explodes, back to just after Liquid Flame")
+                    info = dict(info, timer=True, used=base + used); return False, info
             if not ok:
                 open(os.path.join(self.a.out, f"fail_{enc}_{self.fights_run}.bin"), "wb").write(self.state.to_wram())
                 return False, info
@@ -591,6 +624,10 @@ class Campaign:
 
     def go_shopping(self, idx):
         self.equip_abilities()
+        if idx in self.timed:                    # the escape from the exploding castle: no shops, no way out (user, 2026-10-12)
+            log = []; equip_owned(self.state, self.d, log)
+            for l in log: self.say("  equipped: " + l)
+            return
         areas = json.load(open(self.a.areas))
         visited = {st["name"] for st in self.stages[:idx + 1] if st["kind"] == "local"}
         def label(m):
@@ -693,11 +730,22 @@ class Campaign:
                 if ok: break
                 self.say(f"   fight did not count: {info['name']} at {info['map']}: flawless {info['rate']:.0%} < {self.a.flawless:.0%}")
                 attempts += 1
-                if info.get("timer") and self.after_liquid: snap = self.after_liquid       # game over: the party is as it was right after Liquid Flame
+                if info.get("timer") and self.after_liquid:
+                    snap = self.after_liquid; self.castle_used = 0; self.castle_heal_zone = True       # game over: the party is as it was right after Liquid Flame
                 self.state = Field.from_wram(snap, self.d)       # the failed fight does not count; back to the start of the pass
                 if attempts > self.a.max_attempts:
                     self.say("   STUCK: giving up at this stage"); report.append(dict(stage=idx, name=label, status="stuck", info=info))
                     return self.finish(report, stuck=idx)
+                if idx in self.timed and not info.get("timer"):
+                    # inside the exploding castle the only place to improve is the castle itself: its random fights (their frames count against the clock)
+                    self.state = Field.from_wram(snap, self.d); before = self.party_power()
+                    if self.grind_castle(st, before):          # the clock ran out while grinding
+                        snap = self.after_liquid; self.castle_used = 0; self.castle_heal_zone = True
+                        self.state = Field.from_wram(snap, self.d)
+                    else:
+                        snap = self.state.to_wram()
+                    continue
+                if idx in self.timed: continue
                 # simulate the previous region until every member got a power boost
                 before = self.party_power()
                 gi = max(0, idx - 1)
@@ -740,6 +788,18 @@ class Campaign:
             if n >= self.a.max_grind_passes:
                 self.say("   grind limit reached"); return
             self.go_shopping(gi)
+
+    def grind_castle(self, st, before):
+        """Random Karnak fights again (the boss and the chests are not repeated) until every member got a power boost; True when the clock ran out."""
+        n = 0
+        while True:
+            n += 1
+            ok, info = self.run_pass(st, 2000 + n, st["name"], random_only=True, timed=True)
+            boosted = all(a > b for a, b in zip(self.party_power(), before)) if len(self.party_power()) == len(before) else True
+            self.say(f"   castle grind pass {n}: {'ok' if ok else 'a fight failed: ' + info['name']} | {self.summary_line()} | boost {boosted} | clock {self.castle_used}/{self.a.castle_frames}")
+            if not ok and info.get("timer"): return True
+            if boosted or n >= self.a.max_grind_passes: return False
+            if not ok: return False
 
     def finish(self, report, stuck=None):
         out = os.path.join(self.a.out, "report.json")
