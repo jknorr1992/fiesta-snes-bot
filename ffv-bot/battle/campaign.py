@@ -40,10 +40,10 @@ SLOT_NAMES = ("Bartz", "Lenna", "Galuf", "Faris")
 
 # ------------------------------------------------------------------ battle workers
 _W = {}
-def _init(rom_path, policy="tactical"):
+def _init(rom_path, policy="tactical", boss_deaths=False):
     from sim import BattleSim
     rom = open(rom_path, "rb").read()
-    _W["sim"] = BattleSim(rom); _W["data"] = GameData(rom); _W["policy"] = policy
+    _W["sim"] = BattleSim(rom); _W["data"] = GameData(rom); _W["policy"] = policy; _W["boss_deaths"] = boss_deaths
 
 def _policy(d, enc):
     if _W.get("policy") == "smart": return SmartPolicy(d)
@@ -65,7 +65,11 @@ def _run(job):
         if not r.crash.startswith("sim stall"): break
     stalls = attempt
     dead_end = any(c.hp == 0 or (c.status1 & 0xC0) for c in r.party_after if c.in_party)
-    flawless = r.outcome == ("escaped" if mode == "flee" else "victory") and not pol.died and not dead_end
+    b = d.battle(enc)
+    if mode != "flee" and (b["no_run"] or b["boss"]) and _W.get("boss_deaths"):         # boss fights: a win counts even when somebody fell
+        flawless = r.outcome == "victory"
+    else:
+        flawless = r.outcome == ("escaped" if mode == "flee" else "victory") and not pol.died and not dead_end
     return dict(outcome=r.outcome, flawless=flawless, frames=r.frames, gil=r.gil_gained, exp=r.exp_gained, items=r.items_won,
                 stalls=stalls, wram=r.wram if r.outcome in ("victory", "escaped") else b"")
 
@@ -123,6 +127,44 @@ def item_price(shops, d, i):
         for it in sh["stock"]:
             if it["id"] == i and sh["type"] in (1, 2): return it["price"]
     return 0
+
+TREASURE_MAP, TREASURE_PROP = 0x113000, 0x113210          # ROM D1/3000: first treasure index per map (1 byte), D1/3210: x, y, kind, value (4 bytes each)
+
+def chests(d, m):
+    """[(treasure index, kind, value)] of the plain chests on map m: kind 'gil' (value = gil), 'spell', 'item'; monster-in-a-box chests are left out."""
+    r = d.r; out = []
+    for k in range(r[TREASURE_MAP + m], r[TREASURE_MAP + m + 1]):
+        b2, b3 = r[TREASURE_PROP + 4 * k + 2], r[TREASURE_PROP + 4 * k + 3]
+        if b2 & 0x80: continue
+        a = b2 & 0xE0
+        if a == 0: out.append((k, "gil", b3 * 10 ** (b2 & 7)))
+        elif a == 0x20: out.append((k, "spell", b3))
+        else: out.append((k, "item", b3))
+    return out
+
+def equip_owned(state, d, log):
+    """Wear the best owned (looted / dropped) gear: per member and slot the owned piece with the biggest gear-score gain; the old piece goes back to the bag."""
+    items = state.items()
+    while True:
+        best = None
+        for slot_i in range(4):
+            ch = state.character(slot_i)
+            if not ch.in_party: continue
+            for slot, ids in equip_candidates(d, ch).items():
+                cur = getattr(ch, slot); cs = gear_score(d, cur)
+                if slot == "lh_shield" and ch.lh_weapon: continue
+                for i in ids:
+                    if items.get(i, 0) < 1: continue
+                    g = gear_score(d, i) - cs
+                    if g > 0 and (best is None or g > best[0]): best = (g, slot_i, slot, i, cur)
+        if not best: return
+        _, slot_i, slot, i, old = best
+        ch = state.character(slot_i); setattr(ch, slot, i); state.set_character(slot_i, ch)
+        items[i] -= 1
+        if items[i] <= 0: del items[i]
+        if old and old != 0x80: items[old] = items.get(old, 0) + 1
+        state.set_items(items)
+        log.append(f"{SLOT_NAMES[slot_i]}: {slot} {d.item_name(old) if old and old != 0x80 else '-'} -> {d.item_name(i)} (owned)")
 
 SPELL_VALUE = {"Protect": 45, "Life": 55, "Cure": 60, "Cure2": 70, "Cure3": 110, "Fire": 30, "Ice": 30, "Bolt": 30, "Fire2": 60, "Ice2": 60, "Bolt2": 60, "Fire3": 100, "Ice3": 100, "Bolt3": 100}
 
@@ -281,11 +323,11 @@ class Campaign:
         self.stages = build_stages(a.encounters, a.reached, a.areas, a.steps_per_map)
         self.jobs = dict(DEFAULT_JOBS)
         if a.jobs_spec: self.jobs.update(json.load(open(a.jobs_spec)))
-        self.pool = Pool(a.jobs, initializer=_init, initargs=(a.rom, a.policy))
+        self.pool = Pool(a.jobs, initializer=_init, initargs=(a.rom, a.policy, a.boss_deaths))
         self.fight_log = []; self.log = []; self.t0 = time.time(); self.fights_run = 0; self.tents = 0
         os.makedirs(a.out, exist_ok=True)
         self.state = self.new_state()
-        self.jobs_unlocked = False; self.faris_in = False
+        self.jobs_unlocked = False; self.faris_in = False; self.looted = set()
 
     # ---- party
     def new_state(self):
@@ -333,12 +375,18 @@ class Campaign:
         self.say("jobs assigned: " + ", ".join(f"{n} {self.jobs[n]}" for n in SLOT_NAMES))
 
     def heal(self, why, price=None):
+        if price is None:                                  # no inn here: a Tent from the bag is free, else one is bought
+            tent = self.d.item_id(TENT); items = self.state.items()
+            if items.get(tent, 0) > 0:
+                items[tent] -= 1
+                if items[tent] <= 0: del items[tent]
+                self.state.set_items(items); price = 0
         price = self.shops.tent_price if price is None else price
         if self.state.gil < price: return False
         self.state.gil = self.state.gil - price
         for i in range(4):
             ch = self.state.character(i)
-            if ch.in_party: ch.hp = ch.max_hp; ch.mp = ch.max_mp; ch.status1 &= 0xC0; self.state.set_character(i, ch)
+            if ch.in_party: ch.hp = ch.max_hp; ch.mp = ch.max_mp; ch.status1 = ch.status2 = ch.status3 = ch.status4 = 0; self.state.set_character(i, ch)       # full rest: revived, no ailments
         self.tents += 1
         return True
 
@@ -387,7 +435,8 @@ class Campaign:
         """One fight as a batch.  Returns (counted, summary).  Advances self.state to the batch's average result when it counts.
         A random fight that cannot be won flawlessly may be run away from (hold L+R) if that works 95% of the time without a death."""
         b = self.d.battle(enc)
-        if self.a.flee_first and not scripted and not b["no_run"] and not b["boss"]:
+        at_cap = bool(self.a.max_level) and self.top_level() >= self.a.max_level
+        if (self.a.flee_first or at_cap) and not scripted and not b["no_run"] and not b["boss"]:       # at the level cap more experience is worth nothing: run
             fl = self.batch(enc, bg, runs, "flee"); self.fights_run += 1          # least experience: run from every fight that can be run from safely
             ok = [r for r in fl if r["flawless"]]
             if len(ok) / len(fl) >= self.a.flawless:
@@ -409,6 +458,9 @@ class Campaign:
             if len(ok) / len(fl) >= self.a.flawless:
                 info["exp"] = self.adopt(ok); info["fled"] = True; return True, info
         return False, info
+
+    def top_level(self):
+        return max(self.state.character(i).level for i in range(4) if self.state.character(i).in_party)
 
     def run_pass(self, stage, offset, who):
         """One pass over a stage's fights.  Returns (ok, failed_fight_info)."""
@@ -450,9 +502,27 @@ class Campaign:
         stock = self.shops.stock(maps)
         reserve = self.shops.tent_price
         log = []
+        equip_owned(self.state, self.d, log)
         shop(self.state, stock, self.shops, self.d, reserve, self.jobs if self.jobs_unlocked else {}, log, self.element_weights(idx))
         self.stock_potions(stock, reserve, log)
         for l in log: self.say("  bought: " + l)
+
+    def collect_loot(self, st):
+        """Open every plain chest on the stage's maps (once): gil, items and spells go straight into the party state."""
+        if not self.a.loot: return
+        got = []; items = self.state.items()
+        for m in st["maps"]:
+            for k, kind, v in chests(self.d, m):
+                if k in self.looted: continue
+                self.looted.add(k)
+                if kind == "gil": self.state.gil = self.state.gil + v; got.append(f"{v} gil")
+                elif kind == "spell":
+                    self.state.wram[MAGIC_BITS + (v >> 3)] |= 0x80 >> (v & 7); got.append(f"spell {self.d.spell_name(v)}")
+                else: items[v] = min(99, items.get(v, 0) + 1); got.append(self.d.item_name(v))
+        if got:
+            self.state.set_items(items); self.say("  loot: " + ", ".join(got))
+        log = []; equip_owned(self.state, self.d, log)
+        for l in log: self.say("  equipped: " + l)
 
     def element_weights(self, idx):
         """{element bit: bonus in -0.5..+1.5} from the monsters of this stage and the next three (bosses count six-fold: the spells are bought for them): what they are weak to / absorb."""
@@ -490,20 +560,21 @@ class Campaign:
     def save(self, idx, tag=""):
         p = os.path.join(self.a.out, "state.bin")
         open(p, "wb").write(self.state.to_wram())
-        json.dump(dict(stage=idx, jobs_unlocked=self.jobs_unlocked, faris_in=self.faris_in, tents=self.tents), open(os.path.join(self.a.out, "state.json"), "w"))
+        json.dump(dict(stage=idx, jobs_unlocked=self.jobs_unlocked, faris_in=self.faris_in, tents=self.tents, looted=sorted(self.looted)), open(os.path.join(self.a.out, "state.json"), "w"))
 
     def run(self):
         self.tents = 0; report = []
         idx = 0; passes_at = {}
         sj = os.path.join(self.a.out, "state.json")
         if self.a.resume and os.path.exists(sj):
-            j = json.load(open(sj)); idx = j["stage"] + 1; self.jobs_unlocked = j["jobs_unlocked"]; self.faris_in = j["faris_in"]; self.tents = j["tents"]
+            j = json.load(open(sj)); idx = j["stage"] + 1; self.jobs_unlocked = j["jobs_unlocked"]; self.faris_in = j["faris_in"]; self.tents = j["tents"]; self.looted = set(j.get("looted", []))
             self.state = Field.from_wram(open(os.path.join(self.a.out, "state.bin"), "rb").read(), self.d)
             self.say(f"resumed after stage {idx - 1} | {self.summary_line()}")
         while idx < len(self.stages) and (self.a.until is None or idx <= self.a.until):
             st = self.stages[idx]; self.cur_idx = idx
             label = st["name"] if st["kind"] == "local" else "world map " + ",".join(f"{w}:{bx},{by}" for (w, bx, by) in st["world"])
             self.say(f"== stage {idx}: {label} (steps {st['steps'][0]}-{st['steps'][-1]}), {len(schedule(st))} fights | {self.summary_line()}")
+            self.collect_loot(st)
             self.go_shopping(idx)
             before = self.party_power()
             fail_state = None
@@ -511,6 +582,9 @@ class Campaign:
             while True:
                 snap = (self.state.to_wram())
                 ok, info = self.run_pass(st, attempts, label)
+                if self.a.max_level and self.top_level() > self.a.max_level:
+                    self.say(f"   LEVEL CAP {self.a.max_level} exceeded (level {self.top_level()}) in {label}: challenge failed")
+                    report.append(dict(stage=idx, name=label, status="level cap exceeded")); return self.finish(report, stuck=idx)
                 if ok: break
                 self.say(f"   fight did not count: {info['name']} at {info['map']}: flawless {info['rate']:.0%} < {self.a.flawless:.0%}")
                 attempts += 1
@@ -523,6 +597,9 @@ class Campaign:
                 gi = max(0, idx - 1)
                 while gi > 0 and not schedule(self.stages[gi]): gi -= 1       # a stage without fights cannot give power: grind the last one that has some
                 self.grind(gi, before)
+                if self.a.max_level and self.top_level() > self.a.max_level:
+                    self.say(f"   LEVEL CAP {self.a.max_level} exceeded (level {self.top_level()}) while grinding for {label}: challenge failed")
+                    report.append(dict(stage=idx, name=label, status="level cap exceeded")); return self.finish(report, stuck=idx)
                 self.go_shopping(idx)
                 self.save(idx - 1)                            # checkpoint: a restart resumes this stage with the boosted party
             self.heal("end of region", self.inn_price(st))
@@ -545,6 +622,7 @@ class Campaign:
             boosted = all(a > b for a, b in zip(self.party_power(), before)) if len(self.party_power()) == len(before) else True
             self.say(f"   grind pass {n} in {st['name']}: {'ok' if ok else 'a fight failed: ' + info['name']} | {self.summary_line()} | boost {boosted}")
             if boosted: return
+            if self.a.max_level and self.top_level() > self.a.max_level: return
             self.save(self.cur_idx - 1)                        # keep the progress of long grinds across restarts
             if n >= self.a.max_grind_passes:
                 self.say("   grind limit reached"); return
@@ -573,6 +651,9 @@ def main():
     ap.add_argument("--no-flee", dest="flee", action="store_false", help="never run away from a random fight that cannot be won flawlessly")
     ap.add_argument("--flee-first", action="store_true", help="run away from every runnable random fight that can be escaped flawlessly (95%%); fight the rest")
     ap.add_argument("--until", type=int, default=None, help="stop after finishing this stage index (--list-stages shows them)")
+    ap.add_argument("--max-level", type=int, default=None, help="challenge: no member may pass this level; at the cap runnable random fights are fled")
+    ap.add_argument("--boss-deaths", action="store_true", help="boss / no-run fights count as won when the party wins, even with deaths (random fights stay flawless)")
+    ap.add_argument("--loot", action="store_true", help="open every plain chest on the maps of the regions reached; worn gear is upgraded from the bag")
     ap.add_argument("--policy", choices=("tactical", "smart"), default="tactical", help="battle policy (policy.py)")
     ap.add_argument("--extra-towns", action="store_true", help="shops of towns whose map ids lie below the furthest map reached are usable too (Carwen etc.)")
     ap.add_argument("--resume", action="store_true", help="continue from state.bin/state.json in --out (saved after every finished stage)")
