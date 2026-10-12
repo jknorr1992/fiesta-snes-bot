@@ -37,6 +37,7 @@ from sim import L, R, Command
 
 TENT = "Tent"
 LIQUID_FLAME = 444
+ABSOLUTE_LEVEL_CAP = 40         # user, 2026-10-12: the final boss can be beaten at level 40
 CASTLE_FRAMES = 18000       # user (2026-10-12): fighting in the exploding Castle Karnak may take at most 18000 frames, else game over -> back to just after Liquid Flame
 STEPS_BETWEEN = {"normal": 24, "low": 48, "high": 12, "very high": 6}
 SUBS = ("Shop", "Inn", "Tavern", "Jail", "Storage", "Throne Room", "King's Room", "Queen's Room", "Lenna's Room", "Rooftop", "Grand Hall", "Sealed Room", "House")
@@ -355,7 +356,7 @@ class Campaign:
             if self.liquid_idx is not None and i < self.liquid_idx and st["name"] == "Castle Karnak": st["fights"] = []
         # Castle Karnak after Liquid Flame is on a 10 minute self-destruct timer; the user budgets 5 minutes of fighting (frames) in it
         self.timed = {i for i, st in enumerate(self.stages) if self.liquid_idx is not None and i > self.liquid_idx and st["name"] == "Castle Karnak"}
-        self.after_liquid = None; self._frames = 0; self.rush = False; self.castle_used = 0; self.castle_heal_zone = True
+        self.before_liquid = None; self.liquid_beaten = False; self.redo_liquid = False; self.game_overs = 0; self.seed_shift = 0; self._frames = 0; self.rush = False; self.castle_used = 0; self.castle_heal_zone = True
 
     # ---- party
     def new_state(self):
@@ -434,7 +435,7 @@ class Campaign:
     # ---- fights
     def batch(self, enc, bg, runs, mode="fight", state=None):
         w = (state or self.state).to_wram()
-        seeds = [(k * 97 + (enc * 31)) % 256 for k in range(runs)]
+        seeds = [(k * 97 + (enc * 31) + self.seed_shift) % 256 for k in range(runs)]
         return self.pool.map(_run, [(w, enc, bg, s, mode) for s in seeds], chunksize=2)
 
     def variant(self, assign):
@@ -540,8 +541,9 @@ class Campaign:
         return False, info
 
     def cap(self):
-        """The level cap of the challenge (beat Liquid Flame at or below it); once Liquid Flame is beaten it no longer applies."""
-        return 0 if self.after_liquid is not None else self.a.max_level
+        """Level cap in force: the challenge limit until Liquid Flame is beaten, then the absolute ceiling (the final boss can be beaten at level 40:
+        no level above that is ever considered; temporary level changes such as a Hero's Drink do not count)."""
+        return ABSOLUTE_LEVEL_CAP if (self.liquid_beaten or not self.a.max_level) else self.a.max_level
 
     def top_level(self):
         return max(self.state.character(i).level for i in range(4) if self.state.character(i).in_party)
@@ -551,10 +553,11 @@ class Campaign:
         clock: fights are run away from (when that is safe) once the average pace would overrun CASTLE_FRAMES; a pass whose fights
         take more frames than that is a game over (info['timer'])."""
         fights = schedule(stage, offset, random_only)
+        if self.redo_liquid and stage is self.stages[self.liquid_idx]: fights = [f for f in fights if f[3]]      # back before Liquid Flame: just the boss again
         mid = len(fights) // 2; used = 0; done = 0
         base = self.castle_used if timed else 0           # frames of fighting already spent in this visit of the exploding castle
         budget = self.a.castle_frames
-        chests = [] if (not timed or random_only) else [c for m in stage["maps"] for c in box_chests(self.d, m) if c[0] not in self.looted]
+        chests = [] if (not timed or random_only or self.game_overs) else [c for m in stage["maps"] for c in box_chests(self.d, m) if c[0] not in self.looted]
         for k, (enc, bg, label, scripted) in enumerate(fights):
             self.rush = False
             if timed and done:
@@ -587,6 +590,8 @@ class Campaign:
                         self.say(f"   CASTLE TIMER: {base + used} frames of fighting > {budget}: Castle Karnak explodes, back to just after Liquid Flame")
                         return False, dict(info, timer=True, used=base + used)
                 chests = []
+            if enc == LIQUID_FLAME and not timed:          # the game over of the escape comes back to this point: the party just before Liquid Flame
+                self.before_liquid = self.state.to_wram(); self.looted_before_liquid = set(self.looted); open(os.path.join(self.a.out, "before_liquid.bin"), "wb").write(self.before_liquid)
             ok, info = self.fight(enc, bg, label, 2 * self.a.runs if scripted else self.a.runs, scripted)
             self.rush = False
             self.fight_log.append(dict(stage=stage["name"], **info, counted=ok))
@@ -713,8 +718,9 @@ class Campaign:
         if self.a.resume and os.path.exists(sj):
             j = json.load(open(sj)); idx = j["stage"] + 1; self.jobs_unlocked = j["jobs_unlocked"]; self.faris_in = j["faris_in"]; self.tents = j["tents"]; self.looted = set(j.get("looted", []))
             self.state = Field.from_wram(open(os.path.join(self.a.out, "state.bin"), "rb").read(), self.d)
-            al = os.path.join(self.a.out, "after_liquid.bin")
-            if os.path.exists(al): self.after_liquid = open(al, "rb").read()
+            bl = os.path.join(self.a.out, "before_liquid.bin")
+            if os.path.exists(bl): self.before_liquid = open(bl, "rb").read()
+            self.liquid_beaten = self.liquid_idx is not None and idx > self.liquid_idx
             self.say(f"resumed after stage {idx - 1} | {self.summary_line()}")
         while idx < len(self.stages) and (self.a.until is None or idx <= self.a.until):
             st = self.stages[idx]; self.cur_idx = idx
@@ -722,10 +728,10 @@ class Campaign:
             self.say(f"== stage {idx}: {label} (steps {st['steps'][0]}-{st['steps'][-1]}), {len(schedule(st))} fights | {self.summary_line()}")
             self.collect_loot(st)
             self.go_shopping(idx)
-            if idx == self.liquid_idx and self.cap(): self.prepare_escape(idx)
+            if idx == self.liquid_idx and self.a.max_level and not self.redo_liquid: self.prepare_escape(idx)
             before = self.party_power()
             fail_state = None
-            attempts = 0
+            attempts = 0; reverted = False
             while True:
                 snap = (self.state.to_wram())
                 ok, info = self.run_pass(st, attempts, label, timed=idx in self.timed)
@@ -735,8 +741,8 @@ class Campaign:
                 if ok: break
                 self.say(f"   fight did not count: {info['name']} at {info['map']}: flawless {info['rate']:.0%} < {self.a.flawless:.0%}")
                 attempts += 1
-                if info.get("timer") and self.after_liquid:
-                    snap = self.after_liquid; self.castle_used = 0; self.castle_heal_zone = True       # game over: the party is as it was right after Liquid Flame
+                if info.get("timer") and self.before_liquid:
+                    self.game_over(); reverted = True; break
                 self.state = Field.from_wram(snap, self.d)       # the failed fight does not count; back to the start of the pass
                 if attempts > self.a.max_attempts:
                     self.say("   STUCK: giving up at this stage"); report.append(dict(stage=idx, name=label, status="stuck", info=info))
@@ -745,10 +751,8 @@ class Campaign:
                     # inside the exploding castle the only place to improve is the castle itself: its random fights (their frames count against the clock)
                     self.state = Field.from_wram(snap, self.d); before = self.party_power()
                     if self.grind_castle(st, before):          # the clock ran out while grinding
-                        snap = self.after_liquid; self.castle_used = 0; self.castle_heal_zone = True
-                        self.state = Field.from_wram(snap, self.d)
-                    else:
-                        snap = self.state.to_wram()
+                        self.game_over(); reverted = True; break
+                    snap = self.state.to_wram()
                     continue
                 if idx in self.timed: continue
                 # simulate the previous region until every member got a power boost
@@ -766,12 +770,15 @@ class Campaign:
                     report.append(dict(stage=idx, name=label, status="level cap exceeded")); return self.finish(report, stuck=idx)
                 self.go_shopping(idx)
                 self.save(idx - 1)                            # checkpoint: a restart resumes this stage with the boosted party
+            if reverted:
+                if self.game_overs > self.a.max_attempts:
+                    self.say("   STUCK: the escape keeps running out of time"); report.append(dict(stage=idx, name=label, status="stuck: castle clock")); return self.finish(report, stuck=idx)
+                idx = self.liquid_idx; continue
             self.heal("end of region", self.inn_price(st))
             self.go_shopping(idx)
             if st["name"] == "West Valley" and not self.faris_in: self.add_faris()
             if st["name"] == "Wind Crystal" and not self.jobs_unlocked: self.unlock_jobs(); self.go_shopping(idx)
-            if idx == self.liquid_idx:
-                self.after_liquid = self.state.to_wram(); open(os.path.join(self.a.out, "after_liquid.bin"), "wb").write(self.after_liquid)
+            if idx == self.liquid_idx: self.liquid_beaten = True; self.redo_liquid = False
             self.say(f"   region done after {attempts} failed attempt(s) | {self.summary_line()}")
             report.append(dict(stage=idx, name=label, status="done", attempts=attempts, party=self.summary_line()))
             self.save(idx)
@@ -793,6 +800,13 @@ class Campaign:
             if n >= self.a.max_grind_passes:
                 self.say("   grind limit reached"); return
             self.go_shopping(gi)
+
+    def game_over(self):
+        """The escape ran out of frame budget: game over.  The party is back just before Liquid Flame (user, 2026-10-12) and fights it again."""
+        self.game_overs += 1; self.seed_shift += 41
+        self.say(f"   GAME OVER #{self.game_overs}: back to the party just before Liquid Flame")
+        self.state = Field.from_wram(self.before_liquid, self.d); self.looted = set(getattr(self, "looted_before_liquid", self.looted))
+        self.castle_used = 0; self.castle_heal_zone = True; self.liquid_beaten = False; self.redo_liquid = True
 
     def prepare_escape(self, idx):
         """Liquid Flame is followed at once by the escape from the exploding castle, where nothing can be bought and no other area can be
