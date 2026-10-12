@@ -32,6 +32,7 @@ from party import Catalog, _norm
 from policy import SmartPolicy, FleePolicy, TacticalPolicy, VeteranPolicy
 from knowledge import Bestiary
 from abilities import Abilities
+from jobs import JobSwitcher
 from sim import L, R, Command
 
 TENT = "Tent"
@@ -332,6 +333,7 @@ class Campaign:
         self.shops = Shops(self.d, a.shops)
         self.stages = build_stages(a.encounters, a.reached, a.areas, a.steps_per_map)
         self.jobs = dict(DEFAULT_JOBS)
+        self.js = JobSwitcher(self.d)
         if a.jobs_spec: self.jobs.update(json.load(open(a.jobs_spec)))
         self.pool = Pool(a.jobs, initializer=_init, initargs=(a.rom, a.policy, a.boss_deaths))
         self.fight_log = []; self.log = []; self.t0 = time.time(); self.fights_run = 0; self.tents = 0
@@ -375,19 +377,15 @@ class Campaign:
         self.say(f"Faris joins at level {ch.level}")
 
     def unlock_jobs(self):
-        f = self.state
+        """The Wind Crystal shatters: every member leaves Freelancer for its job through the game's own job change (jobs.py: the
+        Freelancer ABP stays with Freelancer, stat modifiers / commands / equipment types / HP and MP follow the job, gear the job may not
+        wear goes back to the bag)."""
+        f = self.state; bag = f.items(); w = f.to_wram()
         for i, n in enumerate(SLOT_NAMES):
-            ch = f.character(i)
-            if not ch.in_party: continue
-            ch.set_job(self.d, self.jobs[n])
-            ch.raw[0x3D:0x40] = self.d.enable_spells(ch.commands)
-            # keep only gear the new job may wear
-            wm, am = ch.equip_weapons, ch.equip_armor
-            for s in ("rh_weapon", "lh_weapon", "rh_shield", "lh_shield", "head", "body", "accessory"):
-                v = getattr(ch, s)
-                if v and v != 0x80 and not self.d.item_equippable(v, wm, am):
-                    setattr(ch, s, 0x80 if s in ("head", "body", "accessory") else 0)
-            f.set_character(i, ch)
+            if not f.character(i).in_party: continue
+            w, removed = self.js.switch(w, i, self.jobs[n], bag)
+            for it in removed: self.say(f"  {n}: {self.d.item_name(it)} comes off (the {self.jobs[n]} cannot wear it)")
+        f.wram[:] = w; f.set_items(bag)
         self.jobs_unlocked = True
         self.say("jobs assigned: " + ", ".join(f"{n} {self.jobs[n]}" for n in SLOT_NAMES))
 
@@ -529,8 +527,9 @@ class Campaign:
             if not ch.in_party: continue
             new = self.abil.loadout(w, i, ch.commands, has_shield=bool(ch.lh_shield), two_handed=bool(ch.rh_weapon) and not ch.lh_weapon)
             if new != ch.commands:
-                ch.commands = new; self.state.set_character(i, ch)
+                w = self.js.set_commands(w, i, new)              # passives also change stat modifiers, flags and max HP / MP
                 log.append(f"{SLOT_NAMES[i]}: " + ", ".join(self.abil.name(c & 0x7F) + "*" if c & 0x80 else self.d.command_name(c) for c in new[1:3] if c))
+        self.state.wram[:] = w
         for l in log: self.say("  abilities: " + l)
 
     def go_shopping(self, idx):
