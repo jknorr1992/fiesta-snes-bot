@@ -35,14 +35,20 @@ class Nav(Game):
                 self.write(b + 2, bytes([99]))                          # level 99
                 self.write(b + 0x24, bytes([99] * 8))                   # base and current strength, agility, stamina, magic power
     def start_god(self):
-        """Immortality cheat: a background thread (own UDP socket) refills the party's battle HP every ~8 ms, so no enemy action can land a
-        killing blow between two refills of the slower main-loop cheat."""
+        """Immortality cheat: a background thread (own UDP socket) refills the party's battle HP and sets defense / magic defense to 255 every ~8 ms,
+        so no enemy action can land a killing blow between two refills (the max-stat cheat only reaches the base stats; the derived defense values
+        come from the equipment, which is nearly empty here)."""
         import threading
         if getattr(self, "_god", None): return
         self._god_stop = False
         def run():
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.setblocking(False)
-            msgs = [("WRITE_CORE_RAM %x 0f 27" % (0x2000 + 0x80 * slot + 6)).encode() for slot in range(4)]
+            msgs = []
+            for slot in range(4):
+                b = 0x2000 + 0x80 * slot
+                msgs += [("WRITE_CORE_RAM %x 0f 27" % (b + 6)).encode(),        # current HP 9999
+                         ("WRITE_CORE_RAM %x ff" % (b + 0x2D)).encode(),        # defense 255 (derived from equipment, so the max-stat cheat does not reach it)
+                         ("WRITE_CORE_RAM %x ff" % (b + 0x2F)).encode()]        # magic defense 255
             while not self._god_stop:
                 for m in msgs: s.sendto(m, (self.host, 55355))
                 try:
