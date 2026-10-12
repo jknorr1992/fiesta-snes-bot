@@ -46,9 +46,10 @@ class Nav(Game):
             msgs = []
             for slot in range(4):
                 b = 0x2000 + 0x80 * slot
-                msgs += [("WRITE_CORE_RAM %x 0f 27" % (b + 6)).encode(),        # current HP 9999
-                         ("WRITE_CORE_RAM %x ff" % (b + 0x2D)).encode(),        # defense 255 (derived from equipment, so the max-stat cheat does not reach it)
-                         ("WRITE_CORE_RAM %x ff" % (b + 0x2F)).encode()]        # magic defense 255
+                msgs += [("WRITE_CORE_RAM %x 0f 27" % (b + 6)).encode()]        # current HP 9999
+                if self.cheat_level == "full":
+                    msgs += [("WRITE_CORE_RAM %x ff" % (b + 0x2D)).encode(),    # defense 255 (derived from equipment, so the max-stat cheat does not reach it)
+                             ("WRITE_CORE_RAM %x ff" % (b + 0x2F)).encode()]    # magic defense 255
             while not self._god_stop:
                 for m in msgs: s.sendto(m, (self.host, 55355))
                 try:
@@ -62,12 +63,12 @@ class Nav(Game):
             self._god_stop = True; self._god.join(1); self._god = None
 
     def cheat_battle(self):
-        for slot in range(4):
+        for slot in range(4 if self.cheat_level != "enemy" else 0):
             b = 0x2000 + 0x80 * slot
             self.write(b + 6, bytes([0x0F, 0x27]))
         for slot in range(4, 12):
             b = 0x2000 + 0x80 * slot
-            if self.u16(b + 6) > 1: self.write(b + 6, bytes([1, 0]))
+            if self.u16(b + 6) > (0 if self.kill_mode else 1): self.write(b + 6, bytes([0, 0]) if self.kill_mode else bytes([1, 0]))
 
     # ---- state helpers ----
     def flags256(self):
@@ -111,11 +112,33 @@ class Nav(Game):
         cur = o[0x1C]
         return inb, over, (cur if o[0] == 1 and cur < 4 else None)
 
+    cheat_level = "full"            # "full" = HP refill + defense 255 + 1-HP enemies, "hp" = HP refill + 1-HP enemies, "enemy" = 1-HP enemies only
+    LEVELS = ("full", "hp", "enemy")
+    nsnap = 0
+    kill_mode = False               # enemy HP 0 instead of 1: set when attacks do no damage (e.g. a KO'd or weak party) so a 1-HP enemy never dies
     def fight(self, limit=4000):
-        try: return self._fight(limit)
-        finally: self.stop_god()
+        """Win the current battle. The emulator sometimes hangs in a battle (black screen, party idle) while cheats are being written: a
+        watchdog (FFV_BATTLE_TIMEOUT s, default 240) notices, reloads the state taken at the start of the battle (FFV_BATTLE_SNAP names a
+        folder for those states; they are kept for diagnosis) and retries with fewer cheats, after a different wait so the RNG differs."""
+        snap = None
+        d = os.environ.get("FFV_BATTLE_SNAP")
+        if d:
+            Nav.nsnap += 1; snap = os.path.join(d, "bs%d_%d.state" % (os.getpid(), Nav.nsnap))
+            if self.save_as(snap) is None: snap = None
+        tmo = float(os.environ.get("FFV_BATTLE_TIMEOUT", "240"))
+        for attempt in range(len(self.LEVELS)):
+            self.cheat_level = self.LEVELS[attempt]; self._hung = False
+            try: r = self._fight(limit, time.time() + tmo)
+            finally: self.stop_god()
+            if not self._hung:
+                self.cheat_level = "full"; return r
+            print("   battle hung (cheat level %s, attempt %d)%s" % (self.cheat_level, attempt + 1, "; reloading the battle start" if snap else ""), flush=True)
+            if not snap or not self.load_from(snap): break
+            self.wait(7 * (attempt + 1) + 5)
+        self.cheat_level = "full"
+        return False
 
-    def _fight(self, limit=4000):
+    def _fight(self, limit=4000, deadline=None):
         """Win the current battle (enemy HP cheats), driven by the battle state instead of blind A presses: only act when a command menu is
         open (reset the remembered cursor to the first command, Fight, confirm the first target), dismiss the result windows once the
         battle is over, and when a menu stays open too long (stuck in a sub-menu such as Item) cancel with B and start over.
@@ -124,6 +147,7 @@ class Nav(Game):
         menu_since = None; menu_char = None; tries = 0; tick = 0; frozen = 0
         loaded = False                  # no cheat writes before the first command menu has opened (battle graphics fully loaded)
         for i in range(limit):
+            if deadline and time.time() > deadline and self.u8(0x18) == 1: self._hung = True; return False
             inb, over, mc = self.battle_state()
             if not inb:
                 if self.field_running(): return True
@@ -132,9 +156,11 @@ class Nav(Game):
                 self.press("A", 3, 12); continue
             frozen = 0
             tick += 1
-            if mc is not None: loaded = True
+            if mc is not None and not loaded: loaded = True; t_loaded = time.time(); self.kill_mode = False
+            if loaded and not self.kill_mode and time.time() - t_loaded > float(os.environ.get("FFV_KILL_AFTER", "25")):
+                self.kill_mode = True; print("   attacks do not finish the enemies: writing enemy HP 0", flush=True)
             if loaded and os.environ.get('FFV_CHEAT', '1') != '0':
-                self.start_god()
+                if self.cheat_level != "enemy": self.start_god()
                 if tick % 6 == 0: self.cheat_battle()
             if over:
                 self.press("A", 3, 12); menu_since = None; continue
