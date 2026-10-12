@@ -95,9 +95,15 @@ class TacticalPolicy(SmartPolicy):
         ordinary fights keep `mp_floor` of the caster's MP for healing / the next fights;
       * physical hits go to the living monster with the fewest HP (focus fire, no overkill spreading);
       * a character who can only fight, or has no worthwhile spell, attacks."""
-    def __init__(self, data, hard=False, mp_floor=0.3, **kw):
+    def __init__(self, data, hard=False, mp_floor=0.3, forbidden=None, **kw):
         super().__init__(data, **kw)
         self.hard = hard; self.mp_floor = mp_floor
+        import jobcmds
+        for mod in ("jobcmds_phys", "jobcmds_util"):                 # the plugin modules register their commands on import
+            try: __import__(mod)
+            except ImportError: pass
+        self.forbidden = set(jobcmds.FORBIDDEN_DEFAULT if forbidden is None else forbidden)
+        self.job_cmds = [c(self) for c in jobcmds.REGISTRY]
         names = {data.spell_name(i): i for i in range(96) if data.spell_name(i)}
         self.buff_ids = [names[n] for n in BUFFS if n in names]
         self.attack_all = [i for i in range(36, 54) if data.spell_icon(i) == "black" and data.r[SPELL_TABLE + 8 * i + 4] == ATTACK_FORMULA]
@@ -136,6 +142,8 @@ class TacticalPolicy(SmartPolicy):
         # 1-3. revive / heal / potion: the SmartPolicy order (kept: it only acts when somebody needs it)
         c = self._support(sim, char, party, me, mons)
         if c is not None: return c
+        c = self._job_command(sim, me, mons, "support")
+        if c is not None: return c
         # 4. buffs for hard fights
         if self.hard and mons:
             for sp in self.buff_sequence():
@@ -167,10 +175,27 @@ class TacticalPolicy(SmartPolicy):
                 if best is None or score > best[0]: best = (score, sp, m)
         if best:
             return Command(MAGIC_COMMAND, 0x20, Command.monster_mask(best[2].i - 4), 0, best[1])
+        c = self._job_command(sim, me, mons, "offense")
+        if c is not None: return c
         # 6. physical: the weakest living monster
         pool = [m for m in mons if (m.i, 'fight') not in self.banned] or mons
         tgt = max(pool, key=self.priority)
         return Command.fight(tgt.i - 4)
+
+    def fight_value(self, sim, me, mons):
+        """Expected damage of a plain Fight by this character on its best target (replaced by jobcmds_phys when present)."""
+        return getattr(self, "_fight_value", lambda sim, me, mons: 0)(sim, me, mons)
+
+    def _job_command(self, sim, me, mons, kind):
+        have = {self.d.command_name(c) for c in sim.w[me.b + 0x16:me.b + 0x1A] if c and not c & 0x80}
+        best = None
+        for jc in self.job_cmds:
+            if jc.kind != kind or jc.name in self.forbidden or jc.name not in have: continue
+            p = jc.propose(sim, me.i, me, mons)
+            if p and (best is None or p[0] > best[0]): best = p
+        if best is None: return None
+        if kind == "offense" and best[0] <= self.fight_value(sim, me, mons): return None
+        return best[1]
 
     def _multi(self, sim, me, mons, floor):
         """An attack spell that can be cast on every enemy at once (flag 0x80 of its record) when that removes clearly more enemy HP than the

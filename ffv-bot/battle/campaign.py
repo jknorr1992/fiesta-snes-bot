@@ -45,12 +45,18 @@ SUBS = ("Shop", "Inn", "Tavern", "Jail", "Storage", "Throne Room", "King's Room"
 DEFAULT_JOBS = {"Bartz": "Knight", "Lenna": "WhiteMage", "Galuf": "Monk", "Faris": "BlackMage"}
 SLOT_NAMES = ("Bartz", "Lenna", "Galuf", "Faris")
 
+def forbidden_commands(allow):
+    """Commands the policy must not use: jobcmds.FORBIDDEN_DEFAULT minus the ones named in --allow-commands ("Mix,Gil Toss")."""
+    from jobcmds import FORBIDDEN_DEFAULT
+    ok = {x.strip() for x in (allow or "").split(",") if x.strip()}
+    return sorted(set(FORBIDDEN_DEFAULT) - ok)
+
 # ------------------------------------------------------------------ battle workers
 _W = {}
-def _init(rom_path, policy="tactical", boss_deaths=False, latency=0):
+def _init(rom_path, policy="tactical", boss_deaths=False, latency=0, forbidden=None):
     from sim import BattleSim
     rom = open(rom_path, "rb").read()
-    _W["sim"] = BattleSim(rom); _W["sim"].latency = latency; _W["data"] = GameData(rom); _W["policy"] = policy; _W["boss_deaths"] = boss_deaths
+    _W["sim"] = BattleSim(rom); _W["sim"].latency = latency; _W["data"] = GameData(rom); _W["policy"] = policy; _W["boss_deaths"] = boss_deaths; _W["forbidden"] = forbidden
 
 def _policy(d, enc, all_out=False):
     if _W.get("policy") == "smart": return SmartPolicy(d)
@@ -58,8 +64,8 @@ def _policy(d, enc, all_out=False):
     hard = bool(b["no_run"] or b["boss"]) or all_out
     if _W.get("policy") == "veteran":
         if "bestiary" not in _W: _W["bestiary"] = Bestiary(d)
-        return VeteranPolicy(d, _W["bestiary"], b["monster_ids"], hard=hard)
-    return TacticalPolicy(d, hard=hard)
+        return VeteranPolicy(d, _W["bestiary"], b["monster_ids"], hard=hard, forbidden=_W.get("forbidden"))
+    return TacticalPolicy(d, hard=hard, forbidden=_W.get("forbidden"))
 
 def _run(job):
     from scenario import run_battle
@@ -352,7 +358,7 @@ class Campaign:
         self.js = JobSwitcher(self.d, worst=a.worst_char)
         self.avail = set(); self.comfort = 0.5; self.unlocks = load_unlocks(); self._probes = {}
         if a.jobs_spec: self.jobs.update(json.load(open(a.jobs_spec)))
-        self.pool = Pool(a.jobs, initializer=_init, initargs=(a.rom, a.policy, a.boss_deaths, a.input_latency))
+        self.pool = Pool(a.jobs, initializer=_init, initargs=(a.rom, a.policy, a.boss_deaths, a.input_latency, forbidden_commands(a.allow_commands)))
         self.fight_log = []; self.log = []; self.t0 = time.time(); self.fights_run = 0; self.tents = 0
         os.makedirs(a.out, exist_ok=True)
         self.state = self.new_state()
@@ -963,6 +969,7 @@ def make_parser():
     ap.add_argument("--battle-config", type=lambda x: int(x, 0), default=0x08, help="config byte $0970 cmmmbsss (c command window/short, m message speed, b 1 = wait mode, s battle speed; user 2026-10-12: speeds 0, wait mode = 0x08; the game default is 0x2A)")
     ap.add_argument("--input-latency", type=int, default=12, help="frames of the escape timer a player needs to enter a Fight command before the wait-mode sub-menus start (menu ignores input for 9 frames after opening, then one tap; Item and other commands +6); 0 = commands are instant")
     ap.add_argument("--real-chars", dest="worst_char", action="store_false", help="use each character's own stat modifiers instead of the theoretical worst-case character (the lowest of the four)")
+    ap.add_argument("--allow-commands", default="", help='comma list of normally forbidden commands to allow, e.g. "Mix,Gil Toss" (user, 2026-10-12: forbidden by default, they would distort the training)')
     ap.add_argument("--no-plan", dest="plan", action="store_false", help="no role-based job planning: keep --jobs-spec jobs and try permutations when a boss fails (old behaviour)")
     ap.add_argument("--no-reassign", dest="reassign", action="store_false", help="do not try other job assignments when a boss batch fails")
     ap.add_argument("--steps-per-map", type=int, default=80, help="steps walked on each local map (for the number of random encounters)")
