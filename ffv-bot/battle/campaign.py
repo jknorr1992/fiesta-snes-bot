@@ -219,6 +219,8 @@ def equip_owned(state, d, log):
         state.set_items(items)
         log.append(f"{SLOT_NAMES[slot_i]}: {slot} {d.item_name(old) if old and old != 0x80 else '-'} -> {d.item_name(i)} (owned)")
 
+POTION_HEAL = 50
+SPELL_MIN_VALUE_PER_GIL = 0.025          # a spell worth less than this per gil is not bought (Esuna for 3000 gil left the party without the gil for Tents)
 SPELL_VALUE = {"Protect": 45, "Shell": 45, "Life": 55, "Cure": 60, "Cure2": 70, "Cure3": 110, "Fire": 30, "Ice": 30, "Bolt": 30, "Fire2": 60, "Ice2": 60, "Bolt2": 60, "Fire3": 100, "Ice3": 100, "Bolt3": 100,
                "Float": 20, "Esuna": 40, "Death": 40, "Mute": 25, "Haste": 55, "Slow": 35, "Regen": 30, "Stop": 40, "Haste2": 70, "Slow2": 45,
                "Choco": 20, "Sylph": 20, "Rmora": 20, "Shiva": 60, "Ramuh": 70, "Ifrit": 70, "Golem": 50, "Titan": 60}
@@ -270,6 +272,7 @@ def shop(state, stock, shops, d, reserve, jobs, log, elem=None, needs=None):
             if elem and icon == "black" and sp < 54:                      # an element the coming monsters are weak to is worth more; one they absorb / resist, less
                 val *= 1 + elem.get(d.r[0x110B80 + 8 * sp + 7], 0)
             if needs: val *= 1 + 1.5 * needs.spell_need(sp)              # what the bosses ahead call for (bossneeds.py): bought before the fight, not during it
+            if val / price < SPELL_MIN_VALUE_PER_GIL: continue
             if best is None or val / price > best[0]: best = (val / price, "spell", sp, nm, price)
         if not best: break
         if best[1] == "spell":
@@ -399,7 +402,7 @@ class Campaign:
         self.jobs = dict(DEFAULT_JOBS)
         self.js = JobSwitcher(self.d, worst=a.worst_char)
         self.supported = supported_commands(a.allow_commands)
-        self._cures = {}; self.field_casts = 0
+        self._cures = {}; self.field_casts = 0; self.field_potion_uses = 0
         self.avail = set(); self.comfort = 0.5; self.unlocks = load_unlocks(); self._probes = {}
         if a.jobs_spec: self.jobs.update(json.load(open(a.jobs_spec)))
         self.pool = Pool(a.jobs, initializer=_init, initargs=(a.rom, a.policy, a.boss_deaths, a.input_latency, forbidden_commands(a.allow_commands)))
@@ -653,7 +656,22 @@ class Campaign:
             for i in tg: ch[i].hp = min(ch[i].max_hp, ch[i].hp + amount); st.set_character(i, ch[i])
             c = st.character(h); c.mp = c.mp - mp; st.set_character(h, c); casts += 1
         self.field_casts += casts
+        casts += self.field_potions()
         return casts
+
+    def field_potions(self, goal=0.7, keep=10):
+        """When the healers' MP is spent (field_heal keeps a reserve for the next fight) a player drinks Potions between fights instead of walking
+        into the next one at a fifth of their HP; `keep` stay in the bag for emergencies in battle.  A Potion heals 50 HP (measured in the simulator:
+        20 -> 70)."""
+        st = self.state; pot = self.d.item_id("Potion"); items = st.items(); n = items.get(pot, 0) - keep; used = 0
+        for i in range(4):
+            c = st.character(i)
+            if not c.in_party or c.hp <= 0: continue
+            while n > 0 and c.hp < goal * c.max_hp: c.hp = min(c.max_hp, c.hp + POTION_HEAL); n -= 1; used += 1
+            st.set_character(i, c)
+        if used:
+            items[pot] -= used; st.set_items(items); self.field_potion_uses += used
+        return used
 
     def hp_fraction(self):
         fr = [c.hp / max(1, c.max_hp) for c in (self.state.character(i) for i in range(4)) if c.in_party]
@@ -954,11 +972,11 @@ class Campaign:
         return {bit: max(-0.5, min(1.5, 2.0 * v / tot)) for bit, v in score.items()} if tot else None
 
     def stock_potions(self, stock, reserve, log):
-        """Spare gil (above two Tents) goes to Potions, up to 20, from an item shop of a visited region."""
+        """Spare gil (above two Tents) goes to Potions, up to 99, from an item shop of a visited region."""
         pot = self.d.item_id("Potion")
         if pot not in stock["item"]: return
         have = dict(zip(self.state.wram[FIELD_ITEMS:FIELD_ITEMS + 256], self.state.wram[FIELD_QTY:FIELD_QTY + 256])).get(pot, 0)
-        n = min(20 - have, max(0, (self.state.gil - 2 * reserve) // stock["item"][pot]))
+        n = min(99 - have, max(0, (self.state.gil - 2 * reserve) // stock["item"][pot]))
         if n <= 0: return
         items = {k: v for k, v in zip(self.state.wram[FIELD_ITEMS:FIELD_ITEMS + 256], self.state.wram[FIELD_QTY:FIELD_QTY + 256]) if k}
         items[pot] = have + n
