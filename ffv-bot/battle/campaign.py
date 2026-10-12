@@ -476,7 +476,7 @@ class Campaign:
         if [plan[n] for n in names] == cur: return False
         self.state = self.variant(plan); self.jobs.update(plan)
         roles = self.planner.last_plan["roles"]
-        self.say(f"   jobs {why or 'planned'}: " + ", ".join(f"{n} {plan[n]}" for n in names) + " | roles " + ", ".join(f"{r} {j}" for r, j in roles.items()) + f" | {fs}")
+        self.say(f"   jobs {why or 'planned'}: " + ", ".join(f"{n} {plan[n]}" for n in names) + " | roles " + ", ".join(f"{r} {j}" for r, j in roles.items()) + f" | fit {self.planner.last_plan['fit']}/{self.planner.last_plan['best_fit']} funnel {self.planner.last_plan['funnel']} | {fs}")
         return True
 
     def heal(self, why, price=None):
@@ -574,9 +574,9 @@ class Campaign:
     def replan(self, enc, bg, label, runs, rate):
         """A fight the party cannot win 95% of the time: a veteran changes the role that fits the fight worst (the planner in `hard` mode with
         this fight as its only foresight, ignoring ABP) and tries again; a few such changes, each tested with the full batch."""
-        if not self.avail: return None
+        if not self.avail or rate >= 0.85: return None          # that close, one more level does the job (the grind), no change of jobs
         avoid = set()
-        for attempt in range(3):
+        for attempt in range(2):
             old_state, old_jobs = self.state, dict(self.jobs)
             if not self.plan_jobs(self.cur_idx, hard=True, avoid=avoid, fights=[(enc, bg, label, True)], why=f"for {label}"):
                 if self.planner.last_plan is None: return None

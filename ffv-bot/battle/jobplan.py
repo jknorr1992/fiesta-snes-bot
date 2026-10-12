@@ -169,45 +169,39 @@ class Planner:
         jobs = [j for j in avail if j in FIT]
         facts = {j: probe(j) for j in jobs}
         lam = 0.0 if hard else (0.2 + 0.6 * comfort) * (0.5 if fs.bosses else 1.0)
-        slots = {}
+        # score of member m in job j for a role: what the job does for the role now (the member's own numbers) plus the funnel, i.e. the value
+        # per ABP of what this member would learn next in the job, relative to the best that any member/job offers for this role
+        F, L = {}, {}
         for role in roles:
-            scored = []
+            F[role], L[role] = {}, {}
+            raw = {}
             for j in jobs:
-                if (role, j) in avoid: continue
-                members = facts[j]
-                if not members: continue
-                best = None
-                for m, f in members.items():
+                if (role, j) in avoid or not facts[j] or not FIT[j].get(role): continue
+                for m, f in facts[j].items():
                     fit = self.fit(role, j, f, fs)
-                    if role == "front":
-                        fit *= 0.6 + 0.4 * min(1.0, (f["str"] + f["vit"]) / 100.0)
-                    lv = self.learn_value(wram, m, j)
-                    score = fit / 10.0 + lam * min(1.0, lv * 20.0)
-                    if best is None or score > best[0]: best = (score, m)
-                if best and FIT[j].get(role): scored.append((best[0], j))
-            scored.sort(reverse=True)
-            slots[role] = scored
-        # pick: one job per role, a job may fill two roles only when the party has nothing better (duplicates are legal)
-        best_plan = None
-        top = {r: [j for _, j in slots[r][:3]] for r in roles}
-        for combo in itertools.product(*[top[r] for r in roles]):
-            tot = 0.0
-            for r, j in zip(roles, combo):
-                tot += next(s for s, jj in slots[r] if jj == j)
-            if len(set(combo)) < len(combo): tot -= 0.15 * (len(combo) - len(set(combo)))
-            if best_plan is None or tot > best_plan[0]: best_plan = (tot, combo)
-        combo = best_plan[1]
-        scores = {r: next(sc for sc, jj in slots[r] if jj == j) for r, j in zip(roles, combo)}
-        # members: the one with the most progress in the role's job gets it (ties: whoever already wears it)
-        order = list(range(len(names)))
-        best_assign = None
-        for perm in itertools.permutations(order):
-            tot = 0
-            for slot, member in zip(range(len(roles)), perm):
-                j = combo[slot]
-                tot += self.progress(wram, member, j) + (50 if current[member] == j else 0)
-            if best_assign is None or tot > best_assign[0]: best_assign = (tot, perm)
-        perm = best_assign[1]
-        plan = {names[member]: combo[slot] for slot, member in enumerate(perm)}
-        self.last_plan = dict(roles=dict(zip(roles, combo)), plan=plan, scores=scores)
+                    if role == "front": fit *= 0.6 + 0.4 * min(1.0, (f["str"] + f["vit"]) / 100.0)
+                    raw[(m, j)] = (fit / 10.0, self.learn_value(wram, m, j))
+            top_lv = max((v[1] for v in raw.values()), default=0.0)
+            for k, (fit, lv) in raw.items():
+                F[role][k] = fit; L[role][k] = lv / top_lv if top_lv > 0 else 0.0
+        # every way to give the roles to members (with each one's best job) -> (fit total, funnel total, picks)
+        options = []
+        for perm in itertools.permutations(range(len(names))):         # perm[k] = the member of role k
+            for weight in (0.0, lam):
+                taken = []; fit_t = lv_t = 0.0; pick = []
+                for k, role in enumerate(roles):
+                    m = perm[k]
+                    opts = sorted(((F[role][(mm, j)] + weight * L[role][(mm, j)] - (0.15 if j in taken else 0.0) + (0.05 if current[m] == j else 0.0), j)
+                                   for (mm, j) in F[role] if mm == m), reverse=True)
+                    if not opts: break
+                    j = opts[0][1]; fit_t += F[role][(m, j)]; lv_t += L[role][(m, j)]; taken.append(j); pick.append(j)
+                else:
+                    options.append((fit_t, lv_t, perm, pick))
+        top_fit = max(o[0] for o in options)
+        floor = top_fit if hard else top_fit * (0.97 - 0.12 * comfort)       # the funnel may cost a little strength when the last fights were easy
+        ok = [o for o in options if o[0] >= floor] or options
+        fit_t, lv_t, perm, combo = max(ok, key=lambda o: o[0] + lam * o[1])
+        scores = {r: F[r].get((perm[k], combo[k]), 0.0) for k, r in enumerate(roles)}
+        plan = {names[perm[k]]: combo[k] for k in range(len(roles))}
+        self.last_plan = dict(roles=dict(zip(roles, combo)), plan=plan, scores=scores, fit=round(fit_t, 2), best_fit=round(top_fit, 2), funnel=round(lv_t, 2))
         return plan
