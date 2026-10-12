@@ -468,7 +468,7 @@ class Campaign:
             self.state = Field.from_wram(open(os.path.join(self.a.out, "state.bin"), "rb").read(), self.d)
             self.say(f"resumed after stage {idx - 1} | {self.summary_line()}")
         while idx < len(self.stages):
-            st = self.stages[idx]
+            st = self.stages[idx]; self.cur_idx = idx
             label = st["name"] if st["kind"] == "local" else "world map " + ",".join(f"{w}:{bx},{by}" for (w, bx, by) in st["world"])
             self.say(f"== stage {idx}: {label} (steps {st['steps'][0]}-{st['steps'][-1]}), {len(schedule(st))} fights | {self.summary_line()}")
             self.go_shopping(idx)
@@ -490,6 +490,7 @@ class Campaign:
                 gi = max(0, idx - 1)
                 self.grind(gi, before)
                 self.go_shopping(idx)
+                self.save(idx - 1)                            # checkpoint: a restart resumes this stage with the boosted party
             self.heal("end of region", self.inn_price(st))
             self.go_shopping(idx)
             if st["name"] == "West Valley" and not self.faris_in: self.add_faris()
@@ -510,6 +511,7 @@ class Campaign:
             boosted = all(a > b for a, b in zip(self.party_power(), before)) if len(self.party_power()) == len(before) else True
             self.say(f"   grind pass {n} in {st['name']}: {'ok' if ok else 'a fight failed: ' + info['name']} | {self.summary_line()} | boost {boosted}")
             if boosted: return
+            self.save(self.cur_idx - 1)                        # keep the progress of long grinds across restarts
             if n >= self.a.max_grind_passes:
                 self.say("   grind limit reached"); return
             self.go_shopping(gi)

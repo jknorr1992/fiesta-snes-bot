@@ -24,6 +24,8 @@ class SmartPolicy:
         black = {data.spell_name(i): i for i in range(96) if data.spell_name(i) and data.spell_icon(i) == "black"}
         self.heal_ids = [white[n] for n in HEAL_NAMES if n in white]
         self.attack_ids = [black[n] for n in ATTACK_NAMES if n in black]
+        self.life_ids = [white[n] for n in ("Life2", "Life") if n in white]
+        self.pd_id = data.item_id("PhnxDown")
         self.potion_ids = [data.item_id(n) for n in ("Hi-Potion", "Potion")]
         self.died = False
         self.log = []
@@ -42,6 +44,16 @@ class SmartPolicy:
         me = party[char]
         living_mon = [m for m in sim.monsters if not m.dead and m.hp > 0]
         target = (living_mon[0].i - 4) if living_mon else 0
+        # revive a fallen ally: Life (a healer's spell) first, a Phoenix Down otherwise
+        fallen = [c.i for c in party if c.dead and c.i != char]
+        if fallen:
+            ally = fallen[0]
+            for sp in self.life_ids:
+                cost = self._known(sim, char, sp)
+                if cost is not None and cost <= me.mp and not me.dead:
+                    return Command(MAGIC_COMMAND, 0x20, 0, Command.party_mask(ally), sp)
+            slot = next((sl for sl, it in sim.inventory_slots.items() if it == self.pd_id), None)
+            if slot is not None: return Command.item(slot, party=(ally,))
         # heal
         hurt = [(c.hp / max(1, c.max_hp), c.i) for c in party if not c.dead and c.max_hp and c.hp > 0 and c.hp / c.max_hp < self.heal_below and c.row & 0x40 == 0]
         if hurt:
