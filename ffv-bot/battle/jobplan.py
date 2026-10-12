@@ -178,7 +178,10 @@ class Planner:
     # ---- fit of a job for a role from the member's real numbers
     def fit(self, role, job, facts, fs):
         if role == "flex":
-            return max(FLEX_DAMAGE * self.fit("front", job, facts, fs), FLEX_DAMAGE * self.fit("nuker", job, facts, fs), 0.9 * self.fit("support", job, facts, fs))
+            # a second nuker is worth more the more enemies come at once (every attack spell can hit them all): measured at Worus Tower with
+            # groups of three, a second Black Mage beat a second front-liner 20/20 against 17/20 flawless and ended fights 40% sooner
+            nuke = FLEX_DAMAGE + 0.25 * max(0.0, min(1.0, (fs.avg_count - 1.2) / 1.2))
+            return max(FLEX_DAMAGE * self.fit("front", job, facts, fs), nuke * self.fit("nuker", job, facts, fs), 0.9 * self.fit("support", job, facts, fs))
         base = FIT.get(job, {}).get(role, 0)
         if not base: return 0.0
         if role == "nuker":
@@ -189,7 +192,7 @@ class Planner:
                     aoe = fs.avg_count if facts["attack_aoe"].get(sp) else 1.0
                     best = max(best, pw * (1 + 0.5 * (min(aoe, 3) - 1)))
             # no attack spell yet: the job is only a nuker on paper
-            return base * min(1.0, best / 60.0) if best else base * 0.25
+            return base * min(1.0, best / 25.0) if best else base * 0.25
         if role == "healer":
             heals = facts.get("heal", 0)
             return base * (1.0 if heals else 0.3)
