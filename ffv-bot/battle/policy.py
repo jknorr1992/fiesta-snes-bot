@@ -139,6 +139,8 @@ class TacticalPolicy(SmartPolicy):
             self.last_hp[c.i] = c.hp
         alive = [c.max_hp for c in party if not c.dead and c.max_hp]
         if self.hard and alive and self.max_hit: self.heal_below = min(0.85, max(0.5, 1.4 * self.max_hit / min(alive)))
+        c = self._job_command(sim, me, mons, "only")          # a job without Fight / Item (Mime) can only do what its own command allows
+        if c is not None: return c
         # 1-3. revive / heal / potion: the SmartPolicy order (kept: it only acts when somebody needs it)
         c = self._support(sim, char, party, me, mons)
         if c is not None: return c
@@ -158,7 +160,7 @@ class TacticalPolicy(SmartPolicy):
         best = None
         floor = 0 if self.hard else int(self.mp_floor * me.max_mp)
         cmd = self._multi(sim, me, mons, floor)
-        if cmd is not None: return cmd
+        if cmd is not None: return self._job_command(sim, me, mons, "attack", cmd) or cmd
         for sp in self.attack_all:
             if sp in self.summon_row: continue                  # summons hit everybody: only _multi weighs them
             cost = self._known(sim, char, sp)
@@ -173,8 +175,10 @@ class TacticalPolicy(SmartPolicy):
                 dmg = info["power"] * (2 if weak else 1)
                 score = (dmg, -cost, self.priority(m)) if self.hard else (weak, -cost, self.priority(m))
                 if best is None or score > best[0]: best = (score, sp, m)
-        if best:
-            return Command(MAGIC_COMMAND, 0x20, Command.monster_mask(best[2].i - 4), 0, best[1])
+        base = Command(MAGIC_COMMAND, 0x20, Command.monster_mask(best[2].i - 4), 0, best[1]) if best else None
+        c = self._job_command(sim, me, mons, "attack", base)      # spells / commands that clearly beat the choice above
+        if c is not None: return c
+        if base is not None: return base
         c = self._job_command(sim, me, mons, "offense")
         if c is not None: return c
         # 6. physical: the weakest living monster
@@ -186,7 +190,7 @@ class TacticalPolicy(SmartPolicy):
         """Expected damage of a plain Fight by this character on its best target (replaced by jobcmds_phys when present)."""
         return getattr(self, "_fight_value", lambda sim, me, mons: 0)(sim, me, mons)
 
-    def _job_command(self, sim, me, mons, kind):
+    def _job_command(self, sim, me, mons, kind, base=None):
         have = {self.d.command_name(c) for c in sim.w[me.b + 0x16:me.b + 0x1A] if c and not c & 0x80}
         best = None
         for jc in self.job_cmds:
@@ -195,6 +199,9 @@ class TacticalPolicy(SmartPolicy):
             if p and (best is None or p[0] > best[0]): best = p
         if best is None: return None
         if kind == "offense" and best[0] <= self.fight_value(sim, me, mons): return None
+        if kind == "attack":                                      # must beat the base choice (a spell, else a Fight) by 15%
+            v = getattr(self, "_base_value", lambda *a: 0.0)(sim, me, base, mons) if base is not None else self.fight_value(sim, me, mons)
+            if best[0] <= 1.15 * v: return None
         return best[1]
 
     def _multi(self, sim, me, mons, floor):
