@@ -402,7 +402,7 @@ class Campaign:
         self.jobs = dict(DEFAULT_JOBS)
         self.js = JobSwitcher(self.d, worst=a.worst_char)
         self.supported = supported_commands(a.allow_commands)
-        self._cures = {}; self.field_casts = 0; self.field_potion_uses = 0; self.ailment_fights = 0
+        self._cures = {}; self.field_casts = 0; self.field_potion_uses = 0; self.ailment_fights = 0; self.ailments_cured = 0
         self.avail = set(); self.comfort = 0.5; self.unlocks = load_unlocks(); self._probes = {}
         if a.jobs_spec: self.jobs.update(json.load(open(a.jobs_spec)))
         self.pool = Pool(a.jobs, initializer=_init, initargs=(a.rom, a.policy, a.boss_deaths, a.input_latency, forbidden_commands(a.allow_commands)))
@@ -656,8 +656,30 @@ class Campaign:
             for i in tg: ch[i].hp = min(ch[i].max_hp, ch[i].hp + amount); st.set_character(i, ch[i])
             c = st.character(h); c.mp = c.mp - mp; st.set_character(h, c); casts += 1
         self.field_casts += casts
+        casts += self.field_cures()
         casts += self.field_potions()
         return casts
+
+    CURE_ITEM_TYPE = 0x99          # consumable attack type that ANDs the status bytes with its three parameters (Antidote, Eyedrops, Maiden's Kiss, Gold Needle ...)
+    LINGERING = 0x7F               # Status1 stays after a battle (the ROM's UpdateFieldData keeps it): Blind, Zombie, Poison, Mini, Float, Toad, Stone
+
+    def field_cures(self):
+        """Poison, Toad, Blind, Mini and the rest of Status1 stay on a character after the battle (battle-main.asm UpdateFieldData: "keeps Status1");
+        a player cures them from the Item menu before the next fight with the cure items in the bag."""
+        from jobcmds_phys import CONSUMABLE_PROP
+        st = self.state; items = st.items(); used = 0
+        for it in sorted(items):
+            if it < 0xE0 or it > 0xED: continue
+            row = self.d.r[CONSUMABLE_PROP + 8 * (it - 0xE0):CONSUMABLE_PROP + 8 * (it - 0xE0) + 8]
+            if row[4] != self.CURE_ITEM_TYPE: continue
+            for i in range(4):
+                c = st.character(i)
+                if not c.in_party or c.hp <= 0 or items.get(it, 0) <= 0: continue
+                if (c.status1 & self.LINGERING) & ~row[5] & 0xFF:                  # the item clears at least one of the member's ailments
+                    c.status1 &= row[5]; c.status2 &= row[6]; c.status3 &= row[7]; st.set_character(i, c)
+                    items[it] -= 1; used += 1; self.ailments_cured += 1
+        if used: st.set_items({k: v for k, v in items.items() if v > 0})
+        return used
 
     def field_potions(self, goal=0.7, keep=10):
         """When the healers' MP is spent (field_heal keeps a reserve for the next fight) a player drinks Potions between fights instead of walking
@@ -976,6 +998,14 @@ class Campaign:
 
     def stock_potions(self, stock, reserve, log):
         """Spare gil (above two Tents) goes to Potions, up to 99, from an item shop of a visited region."""
+        from jobcmds_phys import CONSUMABLE_PROP
+        items0 = {k: v for k, v in zip(self.state.wram[FIELD_ITEMS:FIELD_ITEMS + 256], self.state.wram[FIELD_QTY:FIELD_QTY + 256]) if k}
+        for it, price in sorted(stock["item"].items(), key=lambda t: t[1]):             # cheap cure items for lingering ailments: five of each kind
+            if it < 0xE0 or it > 0xED or price > 100 or self.d.r[CONSUMABLE_PROP + 8 * (it - 0xE0) + 4] != self.CURE_ITEM_TYPE: continue
+            n = min(5 - items0.get(it, 0), max(0, (self.state.gil - reserve) // price))
+            if n <= 0: continue
+            items0[it] = items0.get(it, 0) + n; self.state.set_items(items0); self.state.gil = self.state.gil - n * price
+            log.append(f"{n} {self.d.item_name(it)} ({n * price} gil)")
         pot = self.d.item_id("Potion")
         if pot not in stock["item"]: return
         have = dict(zip(self.state.wram[FIELD_ITEMS:FIELD_ITEMS + 256], self.state.wram[FIELD_QTY:FIELD_QTY + 256])).get(pot, 0)
