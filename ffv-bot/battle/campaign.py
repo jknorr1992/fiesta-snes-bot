@@ -423,10 +423,57 @@ class Campaign:
         return min(fr)
 
     # ---- fights
-    def batch(self, enc, bg, runs, mode="fight"):
-        w = self.state.to_wram()
+    def batch(self, enc, bg, runs, mode="fight", state=None):
+        w = (state or self.state).to_wram()
         seeds = [(k * 97 + (enc * 31)) % 256 for k in range(runs)]
         return self.pool.map(_run, [(w, enc, bg, s, mode) for s in seeds], chunksize=2)
+
+    def variant(self, assign):
+        """A copy of the party state with the members in the jobs of `assign` ({name: job}): the game's own job change (stat modifiers,
+        commands, equipment types), gear the new job may not wear goes to the bag, owned gear is re-equipped, ability slots refilled,
+        HP/MP keep their fraction."""
+        base = self.state; f = Field.from_wram(base.to_wram(), self.d); bag = f.items(); w = f.to_wram(); frac = {}
+        for i, n in enumerate(SLOT_NAMES):
+            ch = f.character(i)
+            if not ch.in_party: continue
+            frac[i] = (ch.hp / max(1, ch.max_hp), ch.mp / max(1, ch.max_mp))
+            if self.d.job_name(ch.job) != assign[n]: w, _ = self.js.switch(w, i, assign[n], bag)
+        f.wram[:] = w; f.set_items(bag)
+        equip_owned(f, self.d, [])
+        self.equip_abilities(f, quiet=True)
+        for i, (hf, mf) in frac.items():
+            ch = f.character(i); ch.hp = max(1, round(ch.max_hp * hf)); ch.mp = round(ch.max_mp * mf); f.set_character(i, ch)
+        return f
+
+    def reorganize(self, enc, bg, label, runs, rate):
+        """A boss the party cannot beat 95% of the time: before grinding, the party changes jobs (each job's level and ABP stay with the
+        member).  Every assignment of the available jobs to the members is screened with a short batch, the best one gets the full batch."""
+        import itertools
+        pool = sorted(set(self.jobs.values())); names = [n for i, n in enumerate(SLOT_NAMES) if self.state.character(i).in_party]
+        cur = {n: self.d.job_name(self.state.character(SLOT_NAMES.index(n)).job) for n in names}
+        cands = []
+        for perm in itertools.product(pool, repeat=len(names)) if len(pool) ** len(names) <= 64 else itertools.permutations(pool, len(names)):
+            a = dict(zip(names, perm))
+            if a != cur and len(set(a.values())) >= min(3, len(pool)): cands.append(a)
+        if not cands: return None
+        short = max(8, runs // 4); scores = []
+        for a in cands:
+            v = self.variant(a)
+            res = self.batch(enc, bg, short, state=v); self.fights_run += 1
+            scores.append((sum(r["flawless"] for r in res) / len(res), a))
+        scores.sort(key=lambda t: -t[0])
+        self.say(f"   party reorganizes for {label}: best screens " + "; ".join(f"{r:.0%} " + "/".join(a[n][:4] for n in names) for r, a in scores[:3]))
+        for r, a in scores[:2]:
+            if r < max(0.5, rate): break
+            v = self.variant(a); old = self.state; self.state = v
+            res = self.batch(enc, bg, runs); self.fights_run += 1
+            ok = [x for x in res if x["flawless"]]
+            if len(ok) / len(res) >= self.a.flawless:
+                self.jobs.update(a)
+                self.say("   jobs changed: " + ", ".join(f"{n} {a[n]}" for n in names))
+                return dict(rate=round(len(ok) / len(res), 3), exp=self.adopt(ok), frames=self._frames, reorganized=a)
+            self.state = old
+        return None
 
     def adopt(self, runs):
         """The batch's average result becomes the party state: the run whose exp is closest to the mean, HP/MP the mean, gil start + mean."""
@@ -466,6 +513,10 @@ class Campaign:
         info = dict(battle=enc, name=name, rate=round(rate, 3), map=str(label))
         if rate >= self.a.flawless:
             info["exp"] = self.adopt(flawless); info["frames"] = self._frames; return True, info
+        if scripted and self.jobs_unlocked and not self.rush and self.a.reassign:
+            got = self.reorganize(enc, bg, label, runs, rate)
+            if got:
+                info.update(got); return True, info
         b = self.d.battle(enc)
         if not scripted and not b["no_run"] and not b["boss"] and self.a.flee:
             fl = self.batch(enc, bg, runs, "flee"); self.fights_run += 1
@@ -518,19 +569,21 @@ class Campaign:
         # town maps hold their shops: use every map whose region heading belongs to a visited stage name
         return maps
 
-    def equip_abilities(self):
+    def equip_abilities(self, state=None, quiet=False):
         """Fill the two free ability slots of every member from what its ABP has unlocked (abilities.py)."""
         if "abil" not in self.__dict__: self.abil = Abilities(self.d)
-        w = self.state.to_wram(); log = []
+        state = state or self.state
+        w = state.to_wram(); log = []
         for i in range(4):
-            ch = self.state.character(i)
+            ch = state.character(i)
             if not ch.in_party: continue
             new = self.abil.loadout(w, i, ch.commands, has_shield=bool(ch.lh_shield), two_handed=bool(ch.rh_weapon) and not ch.lh_weapon)
             if new != ch.commands:
                 w = self.js.set_commands(w, i, new)              # passives also change stat modifiers, flags and max HP / MP
                 log.append(f"{SLOT_NAMES[i]}: " + ", ".join(self.abil.name(c & 0x7F) + "*" if c & 0x80 else self.d.command_name(c) for c in new[1:3] if c))
-        self.state.wram[:] = w
-        for l in log: self.say("  abilities: " + l)
+        state.wram[:] = w
+        if not quiet:
+            for l in log: self.say("  abilities: " + l)
 
     def go_shopping(self, idx):
         self.equip_abilities()
@@ -698,6 +751,7 @@ def main():
     ap.add_argument("--jobs", type=int, default=None, help="worker processes")
     ap.add_argument("--runs", type=int, default=64, help="battles per fight batch")
     ap.add_argument("--flawless", type=float, default=0.95)
+    ap.add_argument("--no-reassign", dest="reassign", action="store_false", help="do not try other job assignments when a boss batch fails")
     ap.add_argument("--steps-per-map", type=int, default=80, help="steps walked on each local map (for the number of random encounters)")
     ap.add_argument("--castle-frames", type=int, default=CASTLE_FRAMES, help="frame budget for the fights of Castle Karnak after Liquid Flame")
     ap.add_argument("--max-attempts", type=int, default=12); ap.add_argument("--max-grind-passes", type=int, default=40)
