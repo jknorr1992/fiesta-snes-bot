@@ -21,9 +21,12 @@ class Exec(Nav):
         self.normalize_speed()
 
     def fpos(self):
-        """(map, x, y). The map comes from $0AD6 (the current map): $0AD4 keeps the old id after a map exit (LoadParentMap only sets $0AD6)."""
+        """(map, x, y). $0AD6 is the map index (shared by some map ids, see Rom.prop_map_index); $0AD4 is the id as loaded, which entrances and
+        treasures use, but it keeps the old id after a map exit (LoadParentMap only sets $0AD6). So: $0AD4 when its index agrees with $0AD6."""
         b = self.read(0xAD4, 6)
-        return ((b[2] | b[3] << 8) & 0xFFF, b[4], b[5])
+        ad4 = (b[0] | b[1] << 8) & 0xFFF; ad6 = (b[2] | b[3] << 8) & 0xFFF
+        m = ad4 if ad4 < 512 and self.S.R.prop_map_index(ad4) == ad6 else ad6
+        return (m, b[4], b[5])
 
     def live(self):
         m, x, y = self.fpos()

@@ -60,7 +60,7 @@ class Rom:
         return [base + i for i in range(a, b, size)]
 
     def event_triggers(self, m):
-        return [(self.r[o], self.r[o + 1], u16(self.r, o + 2)) for o in self._sub(0xE2400, m, 4)]
+        return [(self.r[o], self.r[o + 1], u16(self.r, o + 2)) for o in self._sub(0xE2400, self.prop_map_index(m), 4)]   # CheckTriggers indexes by $0ad6 (map index), which several map ids share
 
     def entrances(self, m):
         out = []
@@ -73,7 +73,7 @@ class Rom:
     def npcs(self, m):
         r = self.r
         out = []
-        for o in self._sub(0xE59C0, m, 7):
+        for o in self._sub(0xE59C0, u16(self.props(m), 0), 7):   # NPC properties are indexed by the first word of the map properties ($110c)
             out.append({"script": u16(r, o) & 0x3FFF, "gfx": r[o + 2], "x": r[o + 3] & 0x3F, "y": r[o + 4] & 0x3F,
                         "flags": r[o + 5], "pal": r[o + 6]})
         return out
