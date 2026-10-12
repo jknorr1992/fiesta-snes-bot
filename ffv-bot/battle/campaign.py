@@ -838,7 +838,7 @@ class Campaign:
                     ok, info = self.fight(benc, bg, f"chest {ck}", self.a.runs, scripted=True, optional=True)
                     self.fight_log.append(dict(stage=stage["name"], chest=ck, **info, counted=ok))
                     if not ok:
-                        self.say(f"   chest {ck} left closed: {info['name']} flawless {info['rate']:.0%} < {self.a.flawless:.0%}"); continue
+                        self.say(f"   chest {ck} left closed: {info['name']} flawless {info['rate']:.0%} < {self.a.flawless:.0%}" + (f" (running away: {info['flee_rate']:.0%} flawless)" if "flee_rate" in info else "")); continue
                     used += info.get("frames", 0); self.castle_used = base + used
                     self.looted.add(ck); items = self.state.items()
                     if is_spell: self.state.wram[MAGIC_BITS + (val >> 3)] |= 0x80 >> (val & 7); got = f"spell {self.d.spell_name(val)}"
