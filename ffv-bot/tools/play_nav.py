@@ -2,7 +2,7 @@
 """Route play-test driver: walks the ROM-derived route on the test bed with dev cheats (immortal party, 1-HP monsters).
 Movement uses ROM data for planning (world rows + tile properties; local map grid and tile properties read from WRAM) and
 RAM position feedback; blocked steps are remembered and replanned. Cheats are for route testing only (user-approved)."""
-import sys, os, time
+import os, sys, os, time
 from collections import deque
 sys.path.insert(0, os.path.dirname(__file__))
 from play import Game, IDS
@@ -91,6 +91,7 @@ class Nav(Game):
         Returns True when the battle flag cleared."""
         self.wait(180)                  # let the battle load: writing the cheats while the battle graphics load can hang the game (black screen)
         menu_since = None; menu_char = None; tries = 0; tick = 0; frozen = 0
+        loaded = False                  # no cheat writes before the first command menu has opened (battle graphics fully loaded)
         for i in range(limit):
             inb, over, mc = self.battle_state()
             if not inb:
@@ -100,7 +101,8 @@ class Nav(Game):
                 self.press("A", 3, 12); continue
             frozen = 0
             tick += 1
-            if tick % 6 == 0: self.cheat_battle()
+            if mc is not None: loaded = True
+            if loaded and tick % 6 == 0 and os.environ.get('FFV_CHEAT', '1') != '0': self.cheat_battle()
             if over:
                 self.press("A", 3, 12); menu_since = None; continue
             if mc is None:
