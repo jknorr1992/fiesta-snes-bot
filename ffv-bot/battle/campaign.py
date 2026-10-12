@@ -218,7 +218,17 @@ def equip_owned(state, d, log):
         state.set_items(items)
         log.append(f"{SLOT_NAMES[slot_i]}: {slot} {d.item_name(old) if old and old != 0x80 else '-'} -> {d.item_name(i)} (owned)")
 
-SPELL_VALUE = {"Protect": 45, "Life": 55, "Cure": 60, "Cure2": 70, "Cure3": 110, "Fire": 30, "Ice": 30, "Bolt": 30, "Fire2": 60, "Ice2": 60, "Bolt2": 60, "Fire3": 100, "Ice3": 100, "Bolt3": 100}
+SPELL_VALUE = {"Protect": 45, "Shell": 45, "Life": 55, "Cure": 60, "Cure2": 70, "Cure3": 110, "Fire": 30, "Ice": 30, "Bolt": 30, "Fire2": 60, "Ice2": 60, "Bolt2": 60, "Fire3": 100, "Ice3": 100, "Bolt3": 100,
+               "Haste": 55, "Slow": 35, "Regen": 30, "Stop": 40, "Haste2": 70, "Slow2": 45,
+               "Choco": 20, "Sylph": 20, "Rmora": 20, "Shiva": 60, "Ramuh": 70, "Ifrit": 70, "Golem": 50, "Titan": 60}
+
+
+def spell_jobs(d, sp):
+    """Jobs that can use spell `sp` (a purchase only makes sense when one of them is available): white / black magic (Red Mage too), time magic, summons."""
+    if sp >= 72: return {"Summoner"} if sp <= 86 else set()
+    if sp >= 54: return {"TimeMage"}
+    icon = d.spell_icon(sp)
+    return {"WhiteMage", "RedMage"} if icon == "white" else {"BlackMage", "RedMage"} if icon == "black" else set()
 
 def shop(state, stock, shops, d, reserve, jobs, log, elem=None):
     """Greedy: repeatedly make the purchase (equipment upgrade for a member, or a spell for a white/black mage) with the best
@@ -244,11 +254,11 @@ def shop(state, stock, shops, d, reserve, jobs, log, elem=None):
         have = {s for s in range(96) if state.wram[MAGIC_BITS + (s >> 3)] & (0x80 >> (s & 7))}
         for sp, price in stock["magic"].items():
             nm = d.spell_name(sp); icon = d.spell_icon(sp)
-            if sp in have or nm not in SPELL_VALUE or icon not in ("white", "black"): continue
-            if not ({"WhiteMage", "RedMage"} if icon == "white" else {"BlackMage", "RedMage"}) & set(jobs.values()): continue
+            if sp in have or nm not in SPELL_VALUE: continue
+            if not spell_jobs(d, sp) & set(jobs.values()): continue
             if state.gil - price < reserve: continue
             val = SPELL_VALUE[nm]
-            if elem and icon == "black":                      # an element the coming monsters are weak to is worth more; one they absorb / resist, less
+            if elem and icon == "black" and sp < 54:                      # an element the coming monsters are weak to is worth more; one they absorb / resist, less
                 val *= 1 + elem.get(d.r[0x110B80 + 8 * sp + 7], 0)
             if best is None or val / price > best[0]: best = (val / price, "spell", sp, nm, price)
         if not best: break
@@ -848,7 +858,7 @@ class Campaign:
         reserve = 3 * self.shops.tent_price          # keep three Tents' worth for healing (a broke party cannot rest and fails every later fight)
         log = []
         equip_owned(self.state, self.d, log)
-        shop(self.state, stock, self.shops, self.d, reserve, self.jobs if self.jobs_unlocked else {}, log, self.element_weights(idx))
+        shop(self.state, stock, self.shops, self.d, reserve, ({n: j for n, j in enumerate(sorted(self.avail))} if self.avail else {}) if self.jobs_unlocked else {}, log, self.element_weights(idx))
         self.stock_potions(stock, reserve, log)
         for l in log: self.say("  bought: " + l)
 
