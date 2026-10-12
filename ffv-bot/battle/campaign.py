@@ -533,7 +533,7 @@ class Campaign:
         info = dict(battle=enc, name=name, rate=round(rate, 3), map=str(label))
         if rate >= self.a.flawless:
             info["exp"] = self.adopt(flawless); info["frames"] = self._frames; return True, info
-        if scripted and not optional and self.jobs_unlocked and not self.rush and self.a.reassign:
+        if (scripted and not optional or self.timer_on) and self.jobs_unlocked and not self.rush and self.a.reassign:
             got = self.reorganize(enc, bg, label, runs, rate)
             if got:
                 info.update(got); return True, info
@@ -554,14 +554,14 @@ class Campaign:
     def top_level(self):
         return max(self.state.character(i).level for i in range(4) if self.state.character(i).in_party)
 
-    def run_pass(self, stage, offset, who, random_only=False, timed=False):
+    def run_pass(self, stage, offset, who, random_only=False, timed=False, skip_failed=False):
         """One pass over a stage's fights.  Returns (ok, failed_fight_info).  `timed`: the stage is on the Castle Karnak self-destruct
         clock: fights are run away from (when that is safe) once the average pace would overrun CASTLE_FRAMES; a pass whose fights
         take more frames than that is a game over (info['timer'])."""
         self.timer_on = bool(timed)
         fights = schedule(stage, offset, random_only)
         if self.redo_liquid and stage is self.stages[self.liquid_idx]: fights = [f for f in fights if f[3]]      # back before Liquid Flame: just the boss again
-        mid = len(fights) // 2; used = 0; done = 0
+        mid = len(fights) // 2; used = 0; done = 0; failed = None
         base = self.castle_used if timed else 0           # frames of fighting already spent in this visit of the exploding castle
         budget = self.a.castle_frames
         chests = [] if (not timed or random_only or self.game_overs) else [c for m in stage["maps"] for c in box_chests(self.d, m) if c[0] not in self.looted]
@@ -609,8 +609,9 @@ class Campaign:
                     info = dict(info, timer=True, used=base + used); return False, info
             if not ok:
                 open(os.path.join(self.a.out, f"fail_{enc}_{self.fights_run}.bin"), "wb").write(self.state.to_wram())
-                return False, info
-        return True, None
+                if not skip_failed: return False, info
+                failed = failed or info              # grinding: a fight that does not count gives nothing, the others still do
+        return failed is None, failed
 
     def party_power(self):
         return [member_power(self.d, self.state.character(i)) for i in range(4) if self.state.character(i).in_party]
@@ -836,13 +837,13 @@ class Campaign:
         """Random Karnak fights again (the boss and the chests are not repeated) until every member got a power boost; True when the clock ran out."""
         n = 0
         while True:
-            n += 1
-            ok, info = self.run_pass(st, 2000 + n, st["name"], random_only=True, timed=True)
+            n += 1; clock0 = self.castle_used
+            ok, info = self.run_pass(st, 2000 + n, st["name"], random_only=True, timed=True, skip_failed=True)
             boosted = all(a > b for a, b in zip(self.party_power(), before)) if len(self.party_power()) == len(before) else True
             self.say(f"   castle grind pass {n}: {'ok' if ok else 'a fight failed: ' + info['name']} | {self.summary_line()} | boost {boosted} | clock {self.castle_used}/{self.a.castle_frames}")
             if not ok and info.get("timer"): return True
             if boosted or n >= self.a.max_grind_passes: return False
-            if not ok: return False
+            if self.castle_used == clock0: return False          # not one fight of the pass counted: the pass cannot change anything
 
     def finish(self, report, stuck=None):
         out = os.path.join(self.a.out, "report.json")
