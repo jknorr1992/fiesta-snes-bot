@@ -20,9 +20,9 @@ from jobcmds import register, JobCommand
 from sim import Command
 
 # ---- battle RAM / CharStruct offsets (battle_ram.inc)
-O_ROW, O_LEVEL, O_HP, O_MAXHP, O_MP, O_MAXMP = 0x00, 0x02, 0x06, 0x08, 0x0A, 0x0C
+O_ROW, O_LEVEL = 0x00, 0x02
 O_RHSH, O_LHSH, O_RHW, O_LHW = 0x11, 0x12, 0x13, 0x14
-O_ST1, O_ST2, O_ST3, O_ST4, O_CMDST = 0x1A, 0x1B, 0x1C, 0x1D, 0x1E
+O_ST1, O_ST2, O_ST3, O_CMDST = 0x1A, 0x1B, 0x1C, 0x1E
 O_PASS2, O_EQW = 0x21, 0x23
 O_STR, O_AGI, O_MAG = 0x28, 0x29, 0x2B
 O_EVADE, O_DEF, O_MEVADE, O_MDEF = 0x2C, 0x2D, 0x2E, 0x2F
@@ -32,7 +32,7 @@ O_ALWAYS1, O_ALWAYS2, O_ALWAYS3 = 0x70, 0x71, 0x72
 O_BONUS_STR, O_BONUS_AGI, O_BONUS_MAG, O_BONUS_LEVEL = 0x74, 0x75, 0x77, 0x78
 GEAR, GEAR_SIZE, GEAR_RH, GEAR_LH, REC = 0x4049, 84, 60, 72, 12     # per character: 7 equipment records of 12 bytes (RH weapon at +60, LH at +72)
 BATTLE_MONSTER_ID = 0x4020                                           # u16 per monster slot
-INV_ITEMS, INV_QTY = 0x2734, 0x2834
+INV_QTY = 0x2834
 GIL = 0x0947                                                         # 3 bytes, the same WRAM in and out of battle
 MONSTER_ITEM = 0x105000      # ROM: 4 bytes per monster: rare steal, common steal, rare drop, common drop
 CONSUMABLE_PROP = 0x110A80   # ROM: 8 bytes per consumable (item id - 0xE0)
@@ -111,9 +111,9 @@ class Strike:
     def weapon(cls, rec, dm=0, jumping=False):
         return cls(rec[8] & 0x7F, rec[7], rec[9], rec[10], rec[11], rec[1], dm, jumping)
 
-    def range(self, w, a, t):
+    def range(self, w, a, t, crit=False):
         """-> (lowest, highest, hit probability, absorbed) of one strike by CharStruct `a` on CharStruct `t`: the damage when it connects
-        (lowest / highest roll, no critical) and the chance that it does."""
+        (lowest / highest roll; `crit`: as a critical hit, which doubles Attack and ignores Defense) and the chance that it does."""
         k, lvl, st = self.kind, stat(w, a, O_LEVEL, O_BONUS_LEVEL), stat(w, a, O_STR, O_BONUS_STR)
         ag, mg = stat(w, a, O_AGI, O_BONUS_AGI), stat(w, a, O_MAG, O_BONUS_MAG)
         P = self.power
@@ -172,6 +172,7 @@ class Strike:
             elif w[t + O_IMMUNE] & el: return 0, 0, 0.0, False
             elif w[t + O_HALF] & el: a0 >>= 1; a1 >>= 1
             elif w[t + O_WEAK] & el: a0 <<= 1; a1 <<= 1; defense = 0
+        if crit: a0 <<= 1; a1 <<= 1; defense = 0
         M = max(M, 1)
         lo, hi = min(9999, max(0, a0 - defense) * M), min(9999, max(0, a1 - defense) * M)
         if absorbed: return 0, 0, 1.0, True
@@ -195,11 +196,11 @@ def strikes(sim, me, dm=0, jumping=False, kick=False):
     return out
 
 
-def phys_range(sim, me, m, dm=0, jumping=False, kick=False):
-    """(lowest, highest) damage of a Fight by `me` on `m` when every strike connects (no critical)."""
+def phys_range(sim, me, m, dm=0, jumping=False, kick=False, crit=False):
+    """(lowest, highest) damage of a Fight by `me` on `m` when every strike connects (`crit`: every strike a critical hit)."""
     lo = hi = 0
     for s in strikes(sim, me, dm, jumping, kick):
-        l, h, _, _ = s.range(sim.w, me.b, m.b)
+        l, h, _, _ = s.range(sim.w, me.b, m.b, crit)
         lo += l; hi += h
     return lo, hi
 
@@ -279,7 +280,7 @@ def reacts(entry, idx, element, category):
             elif p3 == 0: ok = True
             else: ok = bool(p3 & val) if not p1 or p2 == 7 else True
             if not (cmd_ok and ok): return False
-        elif t in (8, 9): 
+        elif t in (8, 9):
             if not p1: return False                      # 'when this spell / item' is not set off by a command
         elif t in (0xA, 0x11): return False
     return True
@@ -291,6 +292,13 @@ def punishes_jumpers(policy, sim, mons):
     B = getattr(policy, "B", None)
     if B is None: return False
     return any(s[0] == 0xF3 and 0x28 <= s[1] <= 0x2C for m in mons for e in B.script(monster_id(sim, m)) for s in e.specials)
+
+
+def snapshot(sim):
+    """{item id: quantity} of the battle inventory."""
+    out = {}
+    for slot, iid in sim.inventory_slots.items(): out[iid] = out.get(iid, 0) + sim.w[INV_QTY + slot]
+    return out
 
 
 def slot_mask(*mons):
@@ -335,6 +343,15 @@ class PhysCommand(JobCommand):
         """A delayed command leaves the actor waiting longer than a plain turn: refuse when one hit the scripts allow could kill it."""
         return not self.delayed or threat_hi(self.p, me) < me.hp
 
+    def remaining(self, sim, me, m, ticks):
+        """HP monster `m` is expected to still have `ticks` from now: the partners' plain Fights (lowest rolls, spells left out) at their own
+        pace come first, so a delayed command is not wound up against a monster that is about to fall."""
+        gone = 0.0
+        for c in sim.party:
+            if c.i != me.i and not c.dead and c.max_hp:
+                gone += phys_expected(sim, c, m) * ticks / cycle(sim.w, c.b, *self.p.atb)
+        return max(0.0, m.hp - gone)
+
     def ok(self, sim, me, m):
         return not counter_unsafe(self.p, sim, me, m, self.cid, self.element, self.category)
 
@@ -372,22 +389,34 @@ class FightCore(JobCommand):
 # ---- Thief ------------------------------------------------------------------------------------------------------------------------------
 class Stealer(PhysCommand):
     """Steal: 40% (80% with Improved Steal) to take the monster's common item (96%) or rare item (4%); once per monster, never from a monster
-    with nothing in its common slot.  It costs a turn without damage, so only in easy fights (no scripted hit anywhere near lethal) and
-    against monsters that outlive two of the thief's Fights."""
-    bonus = 1.0
+    with nothing in its common slot.  It costs a turn without damage, so only in easy fights (no scripted hit anywhere near lethal), against
+    monsters that outlive two of the thief's Fights, for an item worth having (gear, or a consumable the bag is short of), and at most
+    `tries` times per monster."""
+    bonus, tries = 1.0, 4
+
+    def __init__(self, policy):
+        super().__init__(policy)
+        self.failed = {}
 
     def stealable(self, sim, m):
         return not sim.w[m.b + O_STOLEN] and self.d.r[MONSTER_ITEM + 4 * monster_id(sim, m) + 1] != 0
 
+    def worth(self, sim, m):
+        iid = self.d.r[MONSTER_ITEM + 4 * monster_id(sim, m) + 1]
+        return iid < 0xE0 or snapshot(sim).get(iid, 0) < 5
+
     def safe(self, sim, me, mons):
         party = [c for c in sim.party if not c.dead and c.max_hp]
-        return not self.p.hard and threat_hi(self.p, me) * 2 < min(c.hp for c in party)
+        return not self.p.hard and all(threat_hi(self.p, c) * 2 < c.hp for c in party)
 
     def propose(self, sim, char, me, mons):
         if not self.safe(sim, me, mons): return None
-        m = self.target(sim, me, mons, ok=lambda m: self.stealable(sim, m) and m.hp > 2 * phys_low(sim, me, m))
+        m = self.target(sim, me, mons, ok=lambda m: self.stealable(sim, m) and self.worth(sim, m) and m.hp > 2 * phys_low(sim, me, m)
+                        and self.failed.get(m.i, 0) < self.tries)
         if m is None: return None
-        return self.fv(sim, me, mons) + self.bonus, self.command(sim, me, mons, m)
+        cmd = self.command(sim, me, mons, m)
+        self.failed[m.i] = self.failed.get(m.i, 0) + 1          # cleared by the success itself (the monster is no longer stealable)
+        return self.fv(sim, me, mons) + self.bonus, cmd
 
 
 @register
@@ -421,12 +450,13 @@ class Jump(PhysCommand):
     name, cid = "Jump", CMD_JUMP
 
     def value(self, sim, me, m):
-        return min(m.hp, phys_expected(sim, me, m, dm=0x80, jumping=True)) * self.tempo(sim, me)
+        return min(self.remaining(sim, me, m, delay_ticks(sim.w, me.b, self.cid)), phys_expected(sim, me, m, dm=0x80, jumping=True)) * self.tempo(sim, me)
 
     def propose(self, sim, char, me, mons):
         if punishes_jumpers(self.p, sim, mons): return None
-        m = self.target(sim, me, mons, ok=lambda m: not absorbs(sim, me, m))
-        if m is None or sum(x.hp for x in mons) < phys_low(sim, me, m, dm=0x80, jumping=True): return None   # nothing would be left to land on
+        pool = [m for m in mons if self.ok(sim, me, m) and not absorbs(sim, me, m)]
+        if not pool: return None
+        m = max(pool, key=lambda m: (self.value(sim, me, m), self.p.priority(m)))
         v = self.value(sim, me, m)
         if self.p.hard and threat_hi(self.p, me) * 2 >= me.hp: v *= 1.25            # airborne it takes no hit meanwhile
         return v, self.command(sim, me, mons, m)
@@ -486,11 +516,11 @@ class Throw(PhysCommand):
                 best = max(((min(m.hp, st.range(w, me.b, m.b)[0]), m) for m in mons if self.ok(sim, me, m)), default=None, key=lambda x: (x[0], self.p.priority(x[1])))
                 if best is None: continue
                 need = 1.0 if d.item_kind(iid) is None else 2.0                  # throw-only items cost nothing, a real weapon must be worth it
-                out.append((best[0] / need, slot, best[1]))
+                if best[0] > 0: out.append((best[0] / need, slot, best[1]))
             elif iid >= 0xE0:
                 row = bytes(d.r[CONSUMABLE_PROP + 8 * (iid - 0xE0):CONSUMABLE_PROP + 8 * (iid - 0xE0) + 8])
                 if row[4] != 0x06 or row[0] != 0x48: continue                       # magic attack on all enemies (the elemental scrolls)
-                dmg = [magic_low(w, me.b, m.b, row[6], row[7], len(mons) > 1) for m in mons]
+                dmg = [magic_low(w, me.b, m.b, row[6], row[7]) for m in mons]            # an item's power is not halved by many targets
                 if any(x is None for x in dmg): continue                    # one of them absorbs it
                 out.append((sum(min(m.hp, x) for m, x in zip(mons, dmg)), slot, None))
         return out
@@ -520,39 +550,39 @@ class Aim(PhysCommand):
         return min(m.hp, phys_expected(sim, me, m, dm=0x80)) * t, self.command(sim, me, mons, m)
 
 
-ANIMAL_BINS = ((0, 0), (5, 1), (10, 2), (20, 3), (30, 4), (40, 5), (50, 6), (60, 7))      # (first roll not yet in the bin, animal)
+def animal(roll):
+    """Animals' pick for a roll 0..Level: 0 rabbit, 1 squirrel (<5), 2 bees (<10), 3 nightingale (<20), 4 momonga (<30), 5 falcon (<40),
+    6 skunk (<50), 7 boar (<60), 8 unicorn."""
+    if roll == 0: return 0
+    return next((a for a, lim in enumerate((5, 10, 20, 30, 40, 50, 60), 1) if roll < lim), 8)
 
 
 @register
 class Animals(PhysCommand):
-    """Animals: rolls 0..Level and calls an animal: 0 rabbit (nothing), <5 squirrel (single ground magic 45), <10 bee swarm (all, level damage
-    10..100), <20 nightingale (heals the party, power 60), <30 momonga (paralyze), <40 falcon (gravity: 12/16 of the HP), <50 skunk (poison /
-    blind), <60 boar (single ground magic 180), else unicorn (full restore).  It costs no MP; its value is the average of the animals' lowest
-    results over the roll's distribution, which stays under a Fight until the dice favour the strong animals (Level 40+)."""
+    """Animals: rolls 0..Level and calls an animal: 0 rabbit (nothing), <5 squirrel (one random enemy slot, ground magic 45), <10 bee swarm (all,
+    10..100 x (Level / 8 + 2)), <20 nightingale (heals the party, power 60), <30 momonga (sleep), <40 falcon (one random slot: 12/16 of its
+    HP), <50 skunk (poison / blind), <60 boar (one random slot, ground magic 180), else unicorn (full restore).  No MP is spent; the value is the
+    average over the roll's distribution of each animal's lowest result, which stays under a Fight until the dice favour the strong animals."""
     name, cid = "Animals", CMD_ANIMALS
 
     def value(self, sim, me, mons):
-        w = sim.w; lvl = stat(w, me.b, O_LEVEL, O_BONUS_LEVEL)
-        probs = {}
-        for r in range(lvl + 1):
-            animal = 0
-            for first, a in ANIMAL_BINS:
-                if r >= first: animal = a
-            if r == 0: animal = 0
-            probs[animal] = probs.get(animal, 0) + 1 / (lvl + 1)
+        w = sim.w; lvl = stat(w, me.b, O_LEVEL, O_BONUS_LEVEL); mg = stat(w, me.b, O_MAG, O_BONUS_MAG)
         mean = lambda xs: sum(xs) / len(xs) if xs else 0.0
         grounded = [m for m in mons if not status1(w, m.b) & 0x08]
+        alive = len(mons) / 8                                   # a single-target animal aims at one of the 8 monster slots at random
         party = [c for c in sim.party if not c.dead and c.max_hp]
+        heal = ((lvl * mg) >> 8) + 4
         v = 0.0
-        for a, p in probs.items():
-            if a == 1: v += p * mean([min(m.hp, magic_low(w, me.b, m.b, 45) or 0) for m in grounded])
-            elif a == 7: v += p * mean([min(m.hp, magic_low(w, me.b, m.b, 180) or 0) for m in grounded])
-            elif a == 2:
-                M = (stat(w, me.b, O_LEVEL, O_BONUS_LEVEL) >> 3) + 2
-                v += p * sum(min(m.hp, max(0, 10 - w[m.b + O_MDEF]) * M) for m in mons)
-            elif a == 3: v += p * sum(min(c.max_hp - c.hp, max(0, 60 - w[c.b + O_MDEF]) * (((stat(w, me.b, O_LEVEL, O_BONUS_LEVEL) * stat(w, me.b, O_MAG, O_BONUS_MAG)) >> 8) + 4)) for c in party)
-            elif a == 5: v += p * mean([0.75 * m.hp for m in mons if not w[m.b + O_CREATURE] & HEAVY])
-            elif a == 8: v += p * sum(c.max_hp - c.hp for c in party)
+        for roll in range(lvl + 1):
+            a = animal(roll)
+            if a == 1: x = alive * mean([min(m.hp, magic_low(w, me.b, m.b, 45) or 0) for m in grounded])
+            elif a == 7: x = alive * mean([min(m.hp, magic_low(w, me.b, m.b, 180) or 0) for m in grounded])
+            elif a == 2: x = sum(min(m.hp, max(0, 10 - w[m.b + O_MDEF]) * ((lvl >> 3) + 2)) for m in mons)
+            elif a == 3: x = sum(min(c.max_hp - c.hp, max(0, 60 - w[c.b + O_MDEF]) * heal) for c in party)
+            elif a == 5: x = alive * mean([0.75 * m.hp for m in mons if not w[m.b + O_CREATURE] & HEAVY])
+            elif a == 8: x = sum(c.max_hp - c.hp for c in party)
+            else: x = 0.0
+            v += x / (lvl + 1)
         return v
 
     def propose(self, sim, char, me, mons):
@@ -577,7 +607,8 @@ class Slash(PhysCommand):
         if not self.safe_wait(sim, me, mons): return None
         targets = [m for m in mons if self.ok(sim, me, m)]
         if len(targets) < len(mons): return None            # a counter on one of them: hit them one by one instead
-        v = sum(self.chance(sim, me, m) * m.hp for m in mons) * self.tempo(sim, me)
+        d = delay_ticks(sim.w, me.b, self.cid)
+        v = sum(self.chance(sim, me, m) * self.remaining(sim, me, m, d) for m in mons) * self.tempo(sim, me)
         return v, Command(CMD_SLASH, 0x80, slot_mask(*mons))
 
 
@@ -593,8 +624,8 @@ class SwdSlap(PhysCommand):
 
 @register
 class GilToss(PhysCommand):
-    """Gil Toss (forbidden by default): every enemy takes (Level + 10 - Defense) * 150 for Level * 50 gil each (with too little gil the hit is
-    0 and the gil still goes).  Valued as the HP removed minus `gil_value` damage per gil; the gil kept in reserve is `policy.gil_reserve`."""
+    """Gil Toss (forbidden by default): every enemy takes (Level + 10 - Defense) * 150 and costs Level * 50 gil (with too little gil the toss
+    does nothing and costs nothing).  Valued as the HP removed minus `gil_value` damage per gil; the gil kept in reserve is `policy.gil_reserve`."""
     name, cid, category = "Gil Toss", CMD_GILTOSS, 0
     gil_value = 0.1
 
@@ -637,8 +668,10 @@ class Focus(PhysCommand):
         if not self.safe_wait(sim, me, mons): return None
         pool = [m for m in mons if self.ok(sim, me, m) and not absorbs(sim, me, m)]
         if not pool: return None
-        m = max(pool, key=lambda m: (min(m.hp, phys_expected(sim, me, m, dm=0x10)), self.p.priority(m)))
-        return min(m.hp, phys_expected(sim, me, m, dm=0x10)) * self.tempo(sim, me), self.command(sim, me, mons, m)
+        d = delay_ticks(sim.w, me.b, self.cid)
+        value = lambda m: min(self.remaining(sim, me, m, d), phys_expected(sim, me, m, dm=0x10))
+        m = max(pool, key=lambda m: (value(m), self.p.priority(m)))
+        return value(m) * self.tempo(sim, me), self.command(sim, me, mons, m)
 
 
 @register
@@ -655,17 +688,27 @@ class Chakra(PhysCommand):
         cmd = Command(CMD_CHAKRA, 0x80, 0, Command.party_mask(me.i))
         if status1(sim.w, me.b) & 0x32: return 500.0, cmd
         h = self.heal(sim, me)
-        if me.hp < 0.4 * me.max_hp and h >= 0.15 * me.max_hp and not mons == []: return min(h, me.max_hp - me.hp), cmd
+        if me.hp < 0.4 * me.max_hp and h >= 0.15 * me.max_hp: return min(h, me.max_hp - me.hp), cmd
         return None
 
 
 @register
 class Guard(PhysCommand):
-    """Guard: until the next turn every physical hit on the user does 0 (CommandMod: Guarding sets Attack to 0).  Taken only when a physical
-    hit the scripts allow could kill the user and nothing healed it first."""
+    """Guard: until the next turn every physical hit on the user does 0 (the Guarding bit of CmdStatus makes the hit's Attack 0) and the user
+    does nothing.  Taken when a physical hit the scripts allow could kill the user and nothing healed it first, but never twice in a row (a
+    guard that is never lifted only stalls the fight)."""
     name, cid, kind = "Guard", CMD_GUARD, "support"
 
+    def __init__(self, policy):
+        super().__init__(policy)
+        self.last = set()
+
     def propose(self, sim, char, me, mons):
+        if me.i in self.last:
+            self.last.discard(me.i)
+            return None
         hi = phys_threat(self.p, sim, me, mons)
-        if hi and hi >= me.hp: return 100.0, Command.guard()
+        if hi and hi >= me.hp:
+            self.last.add(me.i)
+            return 100.0, Command.guard()
         return None
