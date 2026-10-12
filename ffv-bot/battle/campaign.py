@@ -402,6 +402,7 @@ class Campaign:
         for k, (enc, bg, label, scripted) in enumerate(fights):
             if stage["kind"] == "world" and self.hp_fraction() < 0.6 and self.heal("world"): pass
             if stage["dungeon"] and k == mid and k > 0 and self.hp_fraction() < 0.8 and self.heal("save point"): pass
+            if scripted and stage["kind"] == "local": self.heal("before boss")        # a player rests / saves before a boss: HP and MP full (one Tent)
             ok, info = self.fight(enc, bg, label, 2 * self.a.runs if scripted else self.a.runs, scripted)
             self.fight_log.append(dict(stage=stage["name"], **info, counted=ok))
             if not ok:
