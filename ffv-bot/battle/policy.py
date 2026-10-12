@@ -30,6 +30,8 @@ class SmartPolicy:
         self.died = False
         self.log = []
 
+    def threshold(self, c): return self.heal_below
+
     def _known(self, sim, char, spell):
         b = CHAR_SPELLS + SPELL_SLOT * char
         w = sim.w
@@ -55,7 +57,7 @@ class SmartPolicy:
             slot = next((sl for sl, it in sim.inventory_slots.items() if it == self.pd_id), None)
             if slot is not None: return Command.item(slot, party=(ally,))
         # heal
-        hurt = [(c.hp / max(1, c.max_hp), c.i) for c in party if not c.dead and c.max_hp and c.hp > 0 and c.hp / c.max_hp < self.heal_below and c.row & 0x40 == 0]
+        hurt = [(c.hp / max(1, c.max_hp), c.i) for c in party if not c.dead and c.max_hp and c.hp > 0 and c.hp / c.max_hp < self.threshold(c) and c.row & 0x40 == 0]
         if hurt:
             _, ally = min(hurt)
             for sp in reversed(self.heal_ids):
@@ -98,11 +100,15 @@ class TacticalPolicy(SmartPolicy):
         names = {data.spell_name(i): i for i in range(96) if data.spell_name(i)}
         self.buff_ids = [names[n] for n in BUFFS if n in names]
         self.attack_all = [i for i in range(36, 54) if data.spell_icon(i) == "black" and data.r[SPELL_TABLE + 8 * i + 4] == ATTACK_FORMULA]
-        self.buffed = set(); self.last_hp = {}; self.max_hit = 0
+        self.buffed = set(); self.last_hp = {}; self.max_hit = 0; self.banned = set()
 
     def spell_info(self, sp):
         o = SPELL_TABLE + 8 * sp; r = self.d.r
         return dict(mp=r[o + 3], power=r[o + 6], element=r[o + 7])
+
+    def buff_sequence(self): return self.buff_ids
+
+    def priority(self, m): return -m.hp                   # higher = kill first (focus fire on the weakest)
 
     def _cure_reserve(self, sim, char):
         costs = [self._known(sim, char, sp) for sp in self.heal_ids]
@@ -127,7 +133,7 @@ class TacticalPolicy(SmartPolicy):
         if c is not None: return c
         # 4. buffs for hard fights
         if self.hard and mons:
-            for sp in self.buff_ids:
+            for sp in self.buff_sequence():
                 cost = self._known(sim, char, sp)
                 if cost is None or cost > me.mp - self._cure_reserve(sim, char): continue
                 for ally in sorted((c for c in party if not c.dead and c.max_hp), key=lambda c: -c.max_hp):
@@ -145,15 +151,17 @@ class TacticalPolicy(SmartPolicy):
             for m in mons:
                 el = info["element"]
                 if el and (self._mon_el(sim, m, "absorb") & el or self._mon_el(sim, m, "immune") & el): continue
+                if (m.i, sp) in self.banned: continue
                 weak = bool(el and self._mon_el(sim, m, "weak") & el)
                 if not self.hard and not weak and me.mp - cost < me.max_mp * 0.6: continue    # ordinary fight, no weakness: only spend a surplus
                 dmg = info["power"] * (2 if weak else 1)
-                score = (dmg, -cost) if self.hard else (weak, -cost, -m.hp)
+                score = (dmg, -cost, self.priority(m)) if self.hard else (weak, -cost, self.priority(m))
                 if best is None or score > best[0]: best = (score, sp, m)
         if best:
             return Command(MAGIC_COMMAND, 0x20, Command.monster_mask(best[2].i - 4), 0, best[1])
         # 6. physical: the weakest living monster
-        tgt = min(mons, key=lambda m: m.hp)
+        pool = [m for m in mons if (m.i, 'fight') not in self.banned] or mons
+        tgt = max(pool, key=self.priority)
         return Command.fight(tgt.i - 4)
 
     def _support(self, sim, char, party, me, mons):
@@ -163,6 +171,109 @@ class TacticalPolicy(SmartPolicy):
         try: cmd = SmartPolicy.__call__(self, sim, char)
         finally: self.attack_ids = saved
         return None if cmd.command == CMD_FIGHT_ID else cmd       # a fall-through to Fight means nothing to support
+
+
+class VeteranPolicy(TacticalPolicy):
+    """TacticalPolicy plus a seasoned player's knowledge of the monsters in front of it:
+      * the AI script of every living monster (which attacks it can choose, under which conditions) and the
+        minimum / maximum its damage formulas can produce on each party member (knowledge.py); never the next roll;
+      * healing is sized per member: heal whoever the strongest possible hit could kill, or whose margin is thinnest;
+      * buffs follow the threat: Protect only against physical attackers, Shell only against casters, Protect/Shell first
+        for whichever kind of damage dominates;
+      * counterattack scripts (react-to-command / element / magic / item / damage) are respected: an action that would
+        set off a lethal counter is replaced by another target or spell when one exists."""
+    def __init__(self, data, bestiary, monster_ids, **kw):
+        super().__init__(data, **kw)
+        self.B = bestiary; self.ids = monster_ids; self.threat = {}; self.kinds = (0, 0); self.mthreat = {}
+
+    # ---- threat model -------------------------------------------------------------------------
+    def _moves(self, sim, m, mons):
+        """Attack ids monster `m` can pick right now (HP-gated blocks only when its HP is under the limit)."""
+        mid = self.ids[m.i - 4] if m.i - 4 < len(self.ids) else None
+        if mid is None: return []
+        out = []
+        for e in self.B.script(mid):
+            if not e.attacks: continue
+            ok = True
+            for c in e.conds:
+                if c[0] == 2 and not (m.hp < (c[2] | c[3] << 8)): ok = False
+                elif c[0] == 4 and c[2] == 0 and len(mons) > 1: ok = False        # "alone"
+            if ok: out += e.attacks
+        return sorted(set(out)), mid
+
+    def _scan(self, sim, party, mons):
+        """-> {member: (lo, hi)} strongest single action on each living member, and (physical, magic) hi totals."""
+        from knowledge import damage_range
+        w = bytes(sim.w); thr = {c.i: [0, 0] for c in party if not c.dead}
+        phys = mag = 0; self.mthreat = {}
+        for m in mons:
+            mv = self._moves(sim, m, mons)
+            if not mv: continue
+            attacks, mid = mv; dm = self.d.monster(mid)
+            for a in attacks:
+                A = self.B.attack(a)
+                for t in thr:
+                    r = damage_range(w, dm, m.i, t, A, crit=A["formula"] in (1, 2))
+                    if not r: continue
+                    thr[t][0] = max(thr[t][0], r[0]); thr[t][1] = max(thr[t][1], r[1])
+                    self.mthreat[m.i] = max(self.mthreat.get(m.i, 0), r[1])
+                    if A["formula"] in (1, 2): phys = max(phys, r[1])
+                    else: mag = max(mag, r[1])
+        return {t: tuple(v) for t, v in thr.items()}, (phys, mag)
+
+    def buff_sequence(self):
+        phys, mag = self.kinds; seq = []
+        name = self.d.spell_name
+        by = {name(i): i for i in self.buff_ids}
+        order = ["Protect", "Shell"] if phys >= mag else ["Shell", "Protect"]
+        for n in order:
+            if n in by and ((n == "Protect" and phys) or (n == "Shell" and mag)): seq.append(by[n])
+        if "Haste" in by: seq.append(by["Haste"])
+        return seq
+
+    def priority(self, m):
+        # kill first what hurts most per HP left (its best possible hit / its remaining HP); equal threats -> weakest first
+        return (self.mthreat.get(m.i, 0) + 1) / (m.hp + 1)
+
+    def threshold(self, c):
+        hi = self.threat.get(c.i, (0, 0))[1]
+        return self.heal_below            # measured: healing earlier than TacticalPolicy's rule only wastes turns and MP
+
+    def __call__(self, sim, char):
+        party = sim.party
+        mons = [m for m in sim.monsters if not m.dead and m.hp > 0]
+        if mons: self.threat, self.kinds = self._scan(sim, party, mons)
+        self.banned = set()
+        for _ in range(4):
+            cmd = super().__call__(sim, char)
+            bad = self._counter_risk(sim, char, cmd, mons)
+            if bad is None: return cmd
+            self.banned.add(bad)
+        return cmd
+
+    def _counter_risk(self, sim, char, cmd, mons):
+        """(monster slot, 'fight' | spell id) when the attack in `cmd` would set off a counter that can kill the
+        actor (or take more than 60% of its max HP) and the monster could be left alone or hit otherwise; else None."""
+        from knowledge import damage_range
+        if cmd.command not in (CMD_FIGHT_ID, MAGIC_COMMAND) or not cmd.monsters: return None
+        slot = next((m for m in mons if cmd.monsters & (0x80 >> (m.i - 4))), None)
+        if slot is None or slot.i - 4 >= len(self.ids) or self.ids[slot.i - 4] is None: return None
+        me = sim.party[char]; w = bytes(sim.w)
+        fight = cmd.command == CMD_FIGHT_ID
+        kind = "fight" if fight else "magic"
+        A = None if fight else self.B.attack(cmd.selected)
+        for e in self.B.counters(self.ids[slot.i - 4]):
+            lim = e.hp_limit
+            if lim and not slot.hp < lim[1]: continue
+            if not self.B.reaction_matches(e, kind, element=A["element"] if A else 0, spell=None if fight else cmd.selected,
+                                           category=0x80 if fight else A["category"]): continue
+            worst = 0
+            for a in e.attacks:
+                r = damage_range(w, self.d.monster(self.ids[slot.i - 4]), slot.i, me.i, self.B.attack(a), crit=True)
+                if r: worst = max(worst, r[1])
+            if worst >= me.hp or worst > 0.6 * me.max_hp:
+                return (slot.i, "fight" if fight else cmd.selected)
+        return None
 
 
 class FleePolicy:

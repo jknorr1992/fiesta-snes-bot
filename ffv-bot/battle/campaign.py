@@ -29,7 +29,8 @@ from multiprocessing import Pool
 from data import GameData
 from field import Field, Character, FIELD_CHAR, CHAR_SIZE, RNG_SEED, FIELD_ITEMS, FIELD_QTY
 from party import Catalog, _norm
-from policy import SmartPolicy, FleePolicy, TacticalPolicy
+from policy import SmartPolicy, FleePolicy, TacticalPolicy, VeteranPolicy
+from knowledge import Bestiary
 from sim import L, R, Command
 
 TENT = "Tent"
@@ -48,7 +49,11 @@ def _init(rom_path, policy="tactical", boss_deaths=False):
 def _policy(d, enc):
     if _W.get("policy") == "smart": return SmartPolicy(d)
     b = d.battle(enc)
-    return TacticalPolicy(d, hard=bool(b["no_run"] or b["boss"]))
+    hard = bool(b["no_run"] or b["boss"])
+    if _W.get("policy") == "veteran":
+        if "bestiary" not in _W: _W["bestiary"] = Bestiary(d)
+        return VeteranPolicy(d, _W["bestiary"], b["monster_ids"], hard=hard)
+    return TacticalPolicy(d, hard=hard)
 
 def _run(job):
     from scenario import run_battle
@@ -288,7 +293,9 @@ def build_stages(enc_json, reached_json, areas_json, steps_per_map, jobs_data=No
         st["dungeon"] = len(st["maps"]) >= 3
     return stages
 
-def schedule(stage, offset=0):
+def n_random(stage): return sum(max(1, round(f['expected'])) for f in stage['fights'] if f['kind'] == 'random')
+
+def schedule(stage, offset=0, random_only=False):
     """Concrete ordered fights of one pass of the stage: every distinct battle at least once, random ones repeated by expectation,
     scripted ones last (bosses).  Deterministic (`offset` rotates the low-discrepancy picks between passes)."""
     out = []; seen = set()
@@ -309,7 +316,7 @@ def schedule(stage, offset=0):
         seen.update(picked)
         out += [(b, f["bg"], f["map"], False) for b in picked]
     for f in stage["fights"]:
-        if f["kind"] == "scripted":
+        if f["kind"] == "scripted" and not random_only:
             for b, c in f["battles"]: out.append((b, f["bg"], f["map"], True))
     return out
 
@@ -462,9 +469,9 @@ class Campaign:
     def top_level(self):
         return max(self.state.character(i).level for i in range(4) if self.state.character(i).in_party)
 
-    def run_pass(self, stage, offset, who):
+    def run_pass(self, stage, offset, who, random_only=False):
         """One pass over a stage's fights.  Returns (ok, failed_fight_info)."""
-        fights = schedule(stage, offset)
+        fights = schedule(stage, offset, random_only)
         mid = len(fights) // 2
         for k, (enc, bg, label, scripted) in enumerate(fights):
             if stage["kind"] == "world" and self.hp_fraction() < 0.6 and self.heal("world"): pass
@@ -595,7 +602,10 @@ class Campaign:
                 # simulate the previous region until every member got a power boost
                 before = self.party_power()
                 gi = max(0, idx - 1)
-                while gi > 0 and not schedule(self.stages[gi]): gi -= 1       # a stage without fights cannot give power: grind the last one that has some
+                while gi > 0 and n_random(self.stages[gi]) < 3: gi -= 1       # grind the nearest earlier stage with a few random fights (a boss stage would just re-fight the boss)
+                if n_random(self.stages[gi]) < 3:
+                    gi = max(0, idx - 1)
+                    while gi > 0 and not schedule(self.stages[gi]): gi -= 1
                 self.grind(gi, before)
                 if self.a.max_level and self.top_level() > self.a.max_level:
                     self.say(f"   LEVEL CAP {self.a.max_level} exceeded (level {self.top_level()}) while grinding for {label}: challenge failed")
@@ -618,7 +628,7 @@ class Campaign:
         while True:
             n += 1
             self.heal("grind", self.inn_price(st))
-            ok, info = self.run_pass(st, 1000 + n, st["name"])
+            ok, info = self.run_pass(st, 1000 + n, st["name"], random_only=n_random(st) >= 3)
             boosted = all(a > b for a, b in zip(self.party_power(), before)) if len(self.party_power()) == len(before) else True
             self.say(f"   grind pass {n} in {st['name']}: {'ok' if ok else 'a fight failed: ' + info['name']} | {self.summary_line()} | boost {boosted}")
             if boosted: return
@@ -654,7 +664,7 @@ def main():
     ap.add_argument("--max-level", type=int, default=None, help="challenge: no member may pass this level; at the cap runnable random fights are fled")
     ap.add_argument("--boss-deaths", action="store_true", help="boss / no-run fights count as won when the party wins, even with deaths (random fights stay flawless)")
     ap.add_argument("--loot", action="store_true", help="open every plain chest on the maps of the regions reached; worn gear is upgraded from the bag")
-    ap.add_argument("--policy", choices=("tactical", "smart"), default="tactical", help="battle policy (policy.py)")
+    ap.add_argument("--policy", choices=("tactical", "smart", "veteran"), default="veteran", help="battle policy (policy.py)")
     ap.add_argument("--extra-towns", action="store_true", help="shops of towns whose map ids lie below the furthest map reached are usable too (Carwen etc.)")
     ap.add_argument("--resume", action="store_true", help="continue from state.bin/state.json in --out (saved after every finished stage)")
     ap.add_argument("--list-stages", action="store_true", help="print the stages and their fights, then exit")
