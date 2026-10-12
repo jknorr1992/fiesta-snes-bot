@@ -1,0 +1,9 @@
+{
+  "_note": "Jobs the game hands out per crystal (FFV, confirmed by the user 2026-10-12; the ROM's event scripts were NOT used, see docs). 'after' is the campaign stage that must be finished first: the name of the stage and which occurrence of that name (1-based). Freelancer is always available.",
+  "unlocks": [
+    {"after": "Wind Crystal", "occurrence": 1, "crystal": "Wind", "jobs": ["Knight", "Monk", "Thief", "WhiteMage", "BlackMage", "BlueMage"]},
+    {"after": "Water Crystal", "occurrence": 1, "crystal": "Water", "jobs": ["Berserker", "RedMage", "Summoner", "TimeMage", "SpellBlade"]},
+    {"after": "Castle Karnak", "occurrence": 2, "crystal": "Fire", "jobs": ["Tamer", "Geomancer", "Ninja", "Bard", "Ranger"]},
+    {"after": "Gohn", "occurrence": 1, "crystal": "Earth", "jobs": ["Samurai", "Dragoon", "Dancer", "Chemist"]}
+  ]
+}

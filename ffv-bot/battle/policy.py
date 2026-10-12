@@ -85,6 +85,7 @@ SPELL_TABLE = 0x110B80       # ROM: 8-byte spell records: flags, target, ?, MP c
 EL_OFF = {"absorb": 0x30, "block": 0x31, "immune": 0x32, "half": 0x33, "weak": 0x34}      # battle CharStruct element defences (bit per element: 1 fire, 2 ice, 4 bolt, ...)
 BUFFS = ("Protect", "Shell", "Haste")                       # cast once on each member that can use it, in hard fights only
 ATTACK_FORMULA = 0x06                                       # damaging black magic (Fire/Ice/Bolt 1-3); Holy uses it too
+SUMMON_ROW_OFFSET = 23
 
 class TacticalPolicy(SmartPolicy):
     """SmartPolicy plus what a careful player does:
@@ -100,10 +101,14 @@ class TacticalPolicy(SmartPolicy):
         names = {data.spell_name(i): i for i in range(96) if data.spell_name(i)}
         self.buff_ids = [names[n] for n in BUFFS if n in names]
         self.attack_all = [i for i in range(36, 54) if data.spell_icon(i) == "black" and data.r[SPELL_TABLE + 8 * i + 4] == ATTACK_FORMULA]
+        # Summons: the spell record only names the summon, the damage is the record 23 further on (Shiva 75 -> 98 ... Bahamut 86 -> 109); they
+        # always hit every enemy.  Phoenix (84) heals / revives and is no attack.
+        self.summon_row = {i: i + SUMMON_ROW_OFFSET for i in range(75, 87) if i != 84 and data.r[SPELL_TABLE + 8 * (i + SUMMON_ROW_OFFSET) + 4] == ATTACK_FORMULA}
+        self.attack_all += sorted(self.summon_row)
         self.buffed = set(); self.last_hp = {}; self.max_hit = 0; self.banned = set()
 
     def spell_info(self, sp):
-        o = SPELL_TABLE + 8 * sp; r = self.d.r
+        o = SPELL_TABLE + 8 * self.summon_row.get(sp, sp); r = self.d.r
         return dict(mp=r[o + 3], power=r[o + 6], element=r[o + 7])
 
     def buff_sequence(self): return self.buff_ids
@@ -147,6 +152,7 @@ class TacticalPolicy(SmartPolicy):
         cmd = self._multi(sim, me, mons, floor)
         if cmd is not None: return cmd
         for sp in self.attack_all:
+            if sp in self.summon_row: continue                  # summons hit everybody: only _multi weighs them
             cost = self._known(sim, char, sp)
             if cost is None or cost > me.mp - floor: continue
             info = self.spell_info(sp)
@@ -170,7 +176,7 @@ class TacticalPolicy(SmartPolicy):
         """An attack spell that can be cast on every enemy at once (flag 0x80 of its record) when that removes clearly more enemy HP than the
         best single-target cast: each target takes half (the game's multi-target rule), so the veteran counts the damage a target can take
         before it dies -- the lowest roll of the spell's power against its magic defence, Level * Magic / 256 + 4 -- never the next roll."""
-        if len(mons) < 2: return None
+        if len(mons) < 2 and not any(self._known(sim, me.i, sp) is not None for sp in self.summon_row): return None
         lvl, mag = me.level, sim.w[me.b + 0x2B]
         mult = ((lvl * mag) >> 8) + 4
         def low(sp, m, multi):
@@ -179,14 +185,15 @@ class TacticalPolicy(SmartPolicy):
                 if self._mon_el(sim, m, "absorb") & el or self._mon_el(sim, m, "immune") & el or self._mon_el(sim, m, "block") & el: return None
                 if self._mon_el(sim, m, "half") & el: a >>= 1
                 elif self._mon_el(sim, m, "weak") & el: a <<= 1; mdef = 0
-            if multi: a >>= 1
+            if multi and len(mons) > 1: a >>= 1
             return min(m.hp, max(0, a - mdef) * mult)
         single = multi = None
         for sp in self.attack_all:
             cost = self._known(sim, me.i, sp)
             if cost is None or cost > me.mp - floor: continue
-            can_all = bool(self.d.r[SPELL_TABLE + 8 * sp] & 0x80)
-            ones = [low(sp, m, False) for m in mons]
+            forced = sp in self.summon_row
+            can_all = forced or bool(self.d.r[SPELL_TABLE + 8 * sp] & 0x80)
+            ones = [low(sp, m, False) for m in mons] if not forced else []
             ones = [x for x in ones if x is not None]
             if ones:
                 v = (max(ones), -cost)

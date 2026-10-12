@@ -33,6 +33,7 @@ from policy import SmartPolicy, FleePolicy, TacticalPolicy, VeteranPolicy
 from knowledge import Bestiary
 from abilities import Abilities
 from jobs import JobSwitcher
+from jobplan import Planner, Foresight, load_unlocks
 from sim import L, R, Command
 
 TENT = "Tent"
@@ -216,7 +217,7 @@ def shop(state, stock, shops, d, reserve, jobs, log, elem=None):
         for sp, price in stock["magic"].items():
             nm = d.spell_name(sp); icon = d.spell_icon(sp)
             if sp in have or nm not in SPELL_VALUE or icon not in ("white", "black"): continue
-            if ("WhiteMage" if icon == "white" else "BlackMage") not in jobs.values(): continue
+            if not ({"WhiteMage", "RedMage"} if icon == "white" else {"BlackMage", "RedMage"}) & set(jobs.values()): continue
             if state.gil - price < reserve: continue
             val = SPELL_VALUE[nm]
             if elem and icon == "black":                      # an element the coming monsters are weak to is worth more; one they absorb / resist, less
@@ -348,7 +349,8 @@ class Campaign:
         self.shops = Shops(self.d, a.shops)
         self.stages = build_stages(a.encounters, a.reached, a.areas, a.steps_per_map)
         self.jobs = dict(DEFAULT_JOBS)
-        self.js = JobSwitcher(self.d)
+        self.js = JobSwitcher(self.d, worst=a.worst_char)
+        self.avail = set(); self.comfort = 0.5; self.unlocks = load_unlocks(); self._probes = {}
         if a.jobs_spec: self.jobs.update(json.load(open(a.jobs_spec)))
         self.pool = Pool(a.jobs, initializer=_init, initargs=(a.rom, a.policy, a.boss_deaths, a.input_latency))
         self.fight_log = []; self.log = []; self.t0 = time.time(); self.fights_run = 0; self.tents = 0
@@ -367,6 +369,10 @@ class Campaign:
     def new_state(self):
         f = Field.new(self.d, party=3, battle_config=self.a.battle_config)
         f.gil = 0
+        if self.js.worst:                               # the theoretical worst-case character: every member's modifiers are the lowest of the four
+            w = f.to_wram()
+            for i in range(4): w = self.js.set_commands(w, i, f.character(i).commands)
+            f.wram[:] = w
         for i in range(3):
             ch = f.character(i); ch.hp = ch.max_hp; ch.mp = ch.max_mp; f.set_character(i, ch)
         return f
@@ -391,18 +397,81 @@ class Campaign:
         f.set_character(3, ch); self.faris_in = True
         self.say(f"Faris joins at level {ch.level}")
 
-    def unlock_jobs(self):
-        """The Wind Crystal shatters: every member leaves Freelancer for its job through the game's own job change (jobs.py: the
-        Freelancer ABP stays with Freelancer, stat modifiers / commands / equipment types / HP and MP follow the job, gear the job may not
-        wear goes back to the bag)."""
-        f = self.state; bag = f.items(); w = f.to_wram()
-        for i, n in enumerate(SLOT_NAMES):
-            if not f.character(i).in_party: continue
-            w, removed = self.js.switch(w, i, self.jobs[n], bag)
-            for it in removed: self.say(f"  {n}: {self.d.item_name(it)} comes off (the {self.jobs[n]} cannot wear it)")
-        f.wram[:] = w; f.set_items(bag)
+    def unlock_jobs(self, idx):
+        """The Wind Crystal shatters: the crystal's jobs become available and every member leaves Freelancer for the job the planner picks
+        (jobs.py: the Freelancer ABP stays with Freelancer, stat modifiers / commands / equipment types / HP and MP follow the job, gear
+        the job may not wear goes back to the bag)."""
         self.jobs_unlocked = True
-        self.say("jobs assigned: " + ", ".join(f"{n} {self.jobs[n]}" for n in SLOT_NAMES))
+        self.update_avail(idx)
+        if self.a.plan: self.plan_jobs(idx + 1, why="first jobs")
+        else:
+            f = self.state; bag = f.items(); w = f.to_wram()
+            for i, n in enumerate(SLOT_NAMES):
+                if not f.character(i).in_party: continue
+                w, removed = self.js.switch(w, i, self.jobs[n], bag)
+            f.wram[:] = w; f.set_items(bag)
+        self.say("jobs assigned: " + ", ".join(f"{n} {self.d.job_name(self.state.character(i).job)}" for i, n in enumerate(SLOT_NAMES) if self.state.character(i).in_party))
+
+    # ---- job planning (jobplan.py): roles, foresight, ABP funnel
+    def members(self): return [n for i, n in enumerate(SLOT_NAMES) if self.state.character(i).in_party]
+
+    def update_avail(self, idx):
+        """Jobs of the crystal whose stage has just been finished become available."""
+        name = self.stages[idx]["name"]
+        occ = sum(1 for st in self.stages[:idx + 1] if st["name"] == name and st["kind"] == "local")
+        for u in self.unlocks:
+            if u["after"] == name and u["occurrence"] == occ and not set(u["jobs"]) <= self.avail:
+                self.avail |= set(u["jobs"]); self.say(f"  the {u['crystal']} Crystal's jobs are available: " + ", ".join(u["jobs"]))
+
+    def probe(self, job):
+        """{member slot: facts} for every member wearing `job` (with its own learned abilities and magic): derived stats and the spells the
+        member can cast, read from the battle setup of a throw-away fight (the game's own derivation)."""
+        key = (job, self.state.to_wram().__hash__())
+        if key in self._probes: return self._probes[key]
+        from scenario import run_battle
+        from sim import BattleSim
+        from policy import CHAR_SPELLS, SPELL_SLOT, SPELL_TABLE
+        if "_psim" not in self.__dict__:
+            self._psim = BattleSim(open(self.rom_path, "rb").read()); self._tp = TacticalPolicy(self.d)
+        tp = self._tp
+        names = self.members()
+        f = self.variant({n: job for n in names})
+        for i in range(len(names)):
+            ch = f.character(i); ch.hp = ch.max_hp; ch.mp = ch.max_mp; f.set_character(i, ch)
+        seen = {}
+        def pol(sim, char):
+            for i in range(len(names)):
+                b = CHAR_SPELLS + SPELL_SLOT * i
+                seen[i] = {sp: sim.w[b + 260 + sp] for sp in range(130) if sim.w[b + sp] == sp and not sim.w[b + 520 + sp] & 0x80 and sp < 112}
+            sim.running = False
+            return Command.fight(0)
+        run_battle(f.to_wram(), 0, 0, policy=pol, max_frames=4000, sim=self._psim)
+        out = {}
+        for i in range(len(names)):
+            ch = f.character(i); cast = seen.get(i, {})
+            out[i] = dict(hp=ch.max_hp, mp=ch.max_mp, str=ch.base_str, agi=ch.base_agi, vit=ch.base_vit, mag=ch.base_mag, castable=cast,
+                          attack_power={sp: tp.spell_info(sp)["power"] for sp in cast if sp in tp.attack_all},
+                          attack_aoe={sp: sp in tp.summon_row or bool(self.d.r[SPELL_TABLE + 8 * sp] & 0x80) for sp in cast if sp in tp.attack_all},
+                          heal=sum(1 for sp in tp.heal_ids if sp in cast), buffs=sum(1 for sp in tp.buff_ids if sp in cast))
+        self._probes[key] = out
+        return out
+
+    def plan_jobs(self, idx, hard=False, avoid=(), fights=None, why="", comfort=None):
+        """Choose the jobs for the area starting at stage `idx` (and the one after it) and switch the party to them; True when anything changed."""
+        if not (self.a.plan and self.jobs_unlocked and self.avail): return False
+        if "planner" not in self.__dict__:
+            self.abil = getattr(self, "abil", None) or Abilities(self.d); self.B = Bestiary(self.d); self.planner = Planner(self.d, self.abil, self.js, self.unlocks)
+        names = self.members(); w = self.state.to_wram()
+        if fights is None: fights = [x for st in self.stages[idx:idx + 2] for x in schedule(st)]
+        if not fights: return False
+        fs = Foresight(self.d, self.B, fights)
+        cur = [self.d.job_name(self.state.character(SLOT_NAMES.index(n)).job) for n in names]
+        plan = self.planner.plan(w, names, sorted(self.avail), fs, self.probe, cur, comfort=self.comfort if comfort is None else comfort, hard=hard, avoid=avoid)
+        if [plan[n] for n in names] == cur: return False
+        self.state = self.variant(plan); self.jobs.update(plan)
+        roles = self.planner.last_plan["roles"]
+        self.say(f"   jobs {why or 'planned'}: " + ", ".join(f"{n} {plan[n]}" for n in names) + " | roles " + ", ".join(f"{r} {j}" for r, j in roles.items()) + f" | {fs}")
+        return True
 
     def heal(self, why, price=None):
         if price is None:                                  # no inn here: a Tent from the bag is free, else one is bought
@@ -496,6 +565,29 @@ class Campaign:
             self.state = old
         return None
 
+    def replan(self, enc, bg, label, runs, rate):
+        """A fight the party cannot win 95% of the time: a veteran changes the role that fits the fight worst (the planner in `hard` mode with
+        this fight as its only foresight, ignoring ABP) and tries again; a few such changes, each tested with the full batch."""
+        if not self.avail: return None
+        avoid = set()
+        for attempt in range(3):
+            old_state, old_jobs = self.state, dict(self.jobs)
+            if not self.plan_jobs(self.cur_idx, hard=True, avoid=avoid, fights=[(enc, bg, label, True)], why=f"for {label}"):
+                if self.planner.last_plan is None: return None
+                scores = self.planner.last_plan["scores"]; roles = self.planner.last_plan["roles"]
+                weakest = min(scores, key=scores.get); avoid.add((weakest, roles[weakest]))
+                continue
+            res = self.batch(enc, bg, runs); self.fights_run += 1
+            ok = [x for x in res if x["flawless"]]
+            if len(ok) / len(res) >= self.a.flawless:
+                self.say("   jobs changed for the fight")
+                return dict(rate=round(len(ok) / len(res), 3), exp=self.adopt(ok), frames=self._frames, reorganized=dict(self.jobs))
+            self.say(f"   {label}: the planned jobs reach {len(ok) / len(res):.0%}")
+            scores = self.planner.last_plan["scores"]; roles = self.planner.last_plan["roles"]
+            weakest = min(scores, key=scores.get); avoid.add((weakest, roles[weakest]))
+            self.state, self.jobs = old_state, old_jobs
+        return None
+
     def adopt(self, runs):
         """The batch's average result becomes the party state: the run whose exp is closest to the mean, HP/MP the mean, gil start + mean."""
         mean_exp = sum(sum(r["exp"]) for r in runs) / len(runs)
@@ -540,7 +632,7 @@ class Campaign:
         if rate >= self.a.flawless:
             info["exp"] = self.adopt(flawless); info["frames"] = self._frames; return True, info
         if (scripted and not optional or self.timer_on) and self.jobs_unlocked and not self.rush and self.a.reassign:
-            got = self.reorganize(enc, bg, label, runs, rate)
+            got = self.replan(enc, bg, label, runs, rate) if self.a.plan else self.reorganize(enc, bg, label, runs, rate)
             if got:
                 info.update(got); return True, info
         b = self.d.battle(enc)
@@ -723,14 +815,14 @@ class Campaign:
     def save(self, idx, tag=""):
         p = os.path.join(self.a.out, "state.bin")
         open(p, "wb").write(self.state.to_wram())
-        json.dump(dict(stage=idx, jobs_unlocked=self.jobs_unlocked, faris_in=self.faris_in, tents=self.tents, looted=sorted(self.looted)), open(os.path.join(self.a.out, "state.json"), "w"))
+        json.dump(dict(stage=idx, jobs_unlocked=self.jobs_unlocked, faris_in=self.faris_in, tents=self.tents, looted=sorted(self.looted), avail=sorted(self.avail), comfort=self.comfort), open(os.path.join(self.a.out, "state.json"), "w"))
 
     def run(self):
         self.tents = 0; report = []
         idx = 0; passes_at = {}
         sj = os.path.join(self.a.out, "state.json")
         if self.a.resume and os.path.exists(sj):
-            j = json.load(open(sj)); idx = j["stage"] + 1; self.jobs_unlocked = j["jobs_unlocked"]; self.faris_in = j["faris_in"]; self.tents = j["tents"]; self.looted = set(j.get("looted", []))
+            j = json.load(open(sj)); idx = j["stage"] + 1; self.jobs_unlocked = j["jobs_unlocked"]; self.faris_in = j["faris_in"]; self.tents = j["tents"]; self.looted = set(j.get("looted", [])); self.avail = set(j.get("avail", [])); self.comfort = j.get("comfort", 0.5)
             self.state = Field.from_wram(open(os.path.join(self.a.out, "state.bin"), "rb").read(), self.d)
             self.state.wram[0x970] = self.a.battle_config
             bl = os.path.join(self.a.out, "before_liquid.bin")
@@ -742,6 +834,7 @@ class Campaign:
             label = st["name"] if st["kind"] == "local" else "world map " + ",".join(f"{w}:{bx},{by}" for (w, bx, by) in st["world"])
             self.say(f"== stage {idx}: {label} (steps {st['steps'][0]}-{st['steps'][-1]}), {len(schedule(st))} fights | {self.summary_line()}")
             self.collect_loot(st)
+            if idx > 0 and self.jobs_unlocked and not (idx in self.timed): self.plan_jobs(idx)
             self.go_shopping(idx)
             if idx == self.liquid_idx and self.a.max_level and not self.redo_liquid: self.prepare_escape(idx)
             before = self.party_power()
@@ -792,7 +885,9 @@ class Campaign:
             self.heal("end of region", self.inn_price(st))
             self.go_shopping(idx)
             if st["name"] == "West Valley" and not self.faris_in: self.add_faris()
-            if st["name"] == "Wind Crystal" and not self.jobs_unlocked: self.unlock_jobs(); self.go_shopping(idx)
+            self.update_avail(idx)
+            if st["name"] == "Wind Crystal" and not self.jobs_unlocked: self.unlock_jobs(idx); self.go_shopping(idx)
+            self.comfort = 1.0 if attempts == 0 else max(0.0, 0.5 - 0.25 * attempts)
             if idx == self.liquid_idx: self.liquid_beaten = True; self.redo_liquid = False
             self.say(f"   region done after {attempts} failed attempt(s) | {self.summary_line()}")
             report.append(dict(stage=idx, name=label, status="done", attempts=attempts, party=self.summary_line()))
@@ -858,7 +953,7 @@ class Campaign:
         return report
 
 
-def main():
+def make_parser():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--rom", default=os.environ.get("FFV_ROM"), help="ROM path (or env FFV_ROM)")
     ap.add_argument("--out", required=True, help="output directory (log, state, report)")
@@ -867,6 +962,8 @@ def main():
     ap.add_argument("--flawless", type=float, default=0.95)
     ap.add_argument("--battle-config", type=lambda x: int(x, 0), default=0x08, help="config byte $0970 cmmmbsss (c command window/short, m message speed, b 1 = wait mode, s battle speed; user 2026-10-12: speeds 0, wait mode = 0x08; the game default is 0x2A)")
     ap.add_argument("--input-latency", type=int, default=12, help="frames of the escape timer a player needs to enter a Fight command before the wait-mode sub-menus start (menu ignores input for 9 frames after opening, then one tap; Item and other commands +6); 0 = commands are instant")
+    ap.add_argument("--real-chars", dest="worst_char", action="store_false", help="use each character's own stat modifiers instead of the theoretical worst-case character (the lowest of the four)")
+    ap.add_argument("--no-plan", dest="plan", action="store_false", help="no role-based job planning: keep --jobs-spec jobs and try permutations when a boss fails (old behaviour)")
     ap.add_argument("--no-reassign", dest="reassign", action="store_false", help="do not try other job assignments when a boss batch fails")
     ap.add_argument("--steps-per-map", type=int, default=80, help="steps walked on each local map (for the number of random encounters)")
     ap.add_argument("--castle-frames", type=int, default=CASTLE_FRAMES, help="frame budget for the fights of Castle Karnak after Liquid Flame")
@@ -886,7 +983,10 @@ def main():
     ap.add_argument("--resume", action="store_true", help="continue from state.bin/state.json in --out (saved after every finished stage)")
     ap.add_argument("--list-stages", action="store_true", help="print the stages and their fights, then exit")
     ap.add_argument("--jobs-spec", help='JSON like {"Bartz": "Knight", "Lenna": "WhiteMage", "Galuf": "Monk", "Faris": "BlackMage"}')
-    a = ap.parse_args()
+    return ap
+
+def main():
+    ap = make_parser(); a = ap.parse_args()
     if not a.rom: ap.error("--rom or env FFV_ROM required")
     if a.list_stages:
         d = GameData(open(a.rom, "rb").read())
