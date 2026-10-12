@@ -191,7 +191,7 @@ class TacticalPolicy(SmartPolicy):
         return getattr(self, "_fight_value", lambda sim, me, mons: 0)(sim, me, mons)
 
     def _job_command(self, sim, me, mons, kind, base=None):
-        have = {self.d.command_name(c) for c in sim.w[me.b + 0x16:me.b + 0x1A] if c and not c & 0x80}
+        have = {self.d.command_name(c) for c in sim.w[me.b + 0x16:me.b + 0x1A] if c and not c & 0x80} | {"Row"}      # every character can change rows
         best = None
         for jc in self.job_cmds:
             if jc.kind != kind or jc.name in self.forbidden or jc.name not in have: continue

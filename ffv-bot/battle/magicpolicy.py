@@ -24,9 +24,9 @@ SUMMON_ROW_OFFSET = 23
 PHOENIX = 84
 
 # CharStruct offsets (battle_ram.inc)
-O_LEVEL, O_ST, O_MAG, O_MEVADE, O_MDEF = 0x02, 0x1A, 0x2B, 0x2E, 0x2F
+O_LEVEL, O_ST, O_MAG, O_EVADE, O_MEVADE, O_MDEF = 0x02, 0x1A, 0x2B, 0x2C, 0x2E, 0x2F
 O_ABSORB, O_BLOCK, O_IMMUNE, O_HALF, O_WEAK = 0x30, 0x31, 0x32, 0x33, 0x34
-O_IMMUNE_ST, O_CANT_EVADE, O_CREATURE, O_ALWAYS, O_BONUS_LEVEL, O_DEF = 0x35, 0x64, 0x65, 0x70, 0x78, 0x2D
+O_IMMUNE_ST, O_CANT_EVADE, O_CREATURE, O_ALWAYS, O_BONUS_LEVEL, O_DEF, O_BONUS_MAG, O_VIT, O_BONUS_VIT = 0x35, 0x64, 0x65, 0x70, 0x78, 0x2D, 0x77, 0x2A, 0x76
 GEAR, GEAR_SIZE, GEAR_RH = 0x4049, 84, 60                      # per character: equipment records of 12 bytes (right-hand weapon at +60)
 
 # statuses as (status byte 0..3, mask); the immunity bytes only exist for the first three
@@ -37,7 +37,7 @@ HEAVY, UNDEAD = 0x20, 0x01                                    # CreatureType bit
 
 # attack types whose hit needs a roll (HitMagic)
 ROLLS = {0x07, 0x0D, 0x0E, 0x0F, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x28, 0x29, 0x2E, 0x3D, 0x50, 0x51, 0x52, 0x53, 0x54, 0x58, 0x6D}
-DAMAGE_KINDS = {0x06, 0x07, 0x08, 0x09, 0x0C, 0x0D, 0x28, 0x2A, 0x2D, 0x4D, 0x4E, 0x6C}
+DAMAGE_KINDS = {0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0F, 0x28, 0x2A, 0x2D, 0x4D, 0x4E, 0x5F, 0x6C}
 KILL_KINDS = {0x12, 0x17, 0x18, 0x4B}
 
 FAMILY = {
@@ -49,11 +49,16 @@ CURES = {20: {POISON}, 29: {STONE, TOAD, MINI, POISON, BLIND, AGING, SLEEP, PARA
 LOSS = {STONE: 1.0, CHARM: 1.0, PARALYZE: 0.7, SLEEP: 0.6, TOAD: 0.5, MUTE: 0.4, AGING: 0.3, POISON: 0.2, BLIND: 0.25, MINI: 0.15}
 
 
+class Caster:
+    """Stand-in for a caster that is not a party member (a released monster): level and magic from its table."""
+    def __init__(self, lv, mag, hp=1, max_hp=1): self.lv, self.mag, self.hp, self.max_hp = lv, mag, hp, max_hp
+
+
 class Rec:
     """One 8-byte spell record."""
     __slots__ = ("id", "tgt", "cat", "hits", "mp", "kind", "p1", "p2", "p3")
-    def __init__(self, rom, sp):
-        o = ATTACK_PROP + 8 * sp
+    def __init__(self, rom, sp, base=ATTACK_PROP):
+        o = base + 8 * sp
         self.id = sp
         self.tgt, self.cat, self.hits, self.mp, k, self.p1, self.p2, self.p3 = rom[o:o + 8]
         self.kind = k & 0x7F; self.hits = (self.hits & 7) + 1
@@ -71,13 +76,15 @@ class Spells:
         self.p = policy; self.d = policy.d; self.r = policy.d.r
         self._rec = {}
 
-    def rec(self, sp):
-        r = self._rec.get(sp)
-        if r is None: r = self._rec[sp] = Rec(self.r, sp)
+    def rec(self, sp, base=ATTACK_PROP):
+        r = self._rec.get((base, sp))
+        if r is None: r = self._rec[base, sp] = Rec(self.r, sp, base)
         return r
 
     def effect(self, sp):
-        """The record whose effect is cast: a summon's own record only names it, damage and status are in the record 23 further on."""
+        """The record whose effect is cast: a summon's own record only names it, damage and status are in the record 23 further on.  A Rec
+        (a command ability, an item, a monster's attack) stands for itself."""
+        if isinstance(sp, Rec): return sp
         return self.rec(sp + SUMMON_ROW_OFFSET) if 72 <= sp <= 86 and sp != PHOENIX else self.rec(sp)
 
     @staticmethod
@@ -102,10 +109,28 @@ class Spells:
     def has(self, sim, c, st): return bool(self.status(sim, c)[st[0]] & st[1])
 
     @staticmethod
+    def raw(sim, c, st):
+        """The status as the battle can remove it (the always-on status of gear and monsters excluded)."""
+        return bool(sim.w[c.b + O_ST + st[0]] & st[1])
+
+    def claimed(self, sim, frames=300):
+        """Keys taken care of within the last `frames`."""
+        return {k for k, f in self.__dict__.get("_claims", {}).items() if 0 <= sim.frame - f < frames}
+
+    def claim(self, key, sim, frames=300):
+        """True when nobody has taken care of `key` (an ally's status, a fallen ally) in the last `frames`; marks it taken.  Two members whose
+        turns overlap would otherwise both cure the same ally."""
+        c = self.__dict__.setdefault("_claims", {}); f = c.get(key)
+        if f is not None and 0 <= sim.frame - f < frames: return False
+        c[key] = sim.frame
+        return True
+
+    @staticmethod
     def immune(sim, c, st): return st[0] < 3 and bool(sim.w[c.b + O_IMMUNE_ST + st[0]] & st[1])
 
     @staticmethod
-    def level(sim, c): return sim.w[c.b + O_LEVEL] + sim.w[c.b + O_BONUS_LEVEL]
+    def level(sim, c):
+        return c.lv if isinstance(c, Caster) else sim.w[c.b + O_LEVEL] + sim.w[c.b + O_BONUS_LEVEL]
 
     @staticmethod
     def creature(sim, c): return sim.w[c.b + O_CREATURE]
@@ -121,8 +146,10 @@ class Spells:
     def hit_p(self, sim, me, rec, t, n=1):
         """Probability that spell `rec` lands on `t`: the level-based hit % (halved by Shell and when several targets are aimed at), then the
         magic evade roll."""
-        if rec.kind not in ROLLS or rec.p1 & 0x80: return 1.0
         w = sim.w
+        if rec.kind == 0x0A and not rec.p1 & 0x80:                                     # physical magic rolls against the physical evade
+            return rec.p1 / 100 * (1 - w[t.b + O_EVADE] / 100)
+        if rec.kind not in ROLLS or rec.p1 & 0x80: return 1.0
         if rec.cat & w[t.b + O_CANT_EVADE]: return 1.0
         hit = min(99, max(1, rec.p1 + self.level(sim, me) - self.level(sim, t)))
         if self.has(sim, t, SHELL): hit = max(1, hit >> 1)
@@ -134,7 +161,7 @@ class Spells:
     @staticmethod
     def element_of(rec):
         k = rec.kind
-        return rec.p3 if k in (0x06, 0x08, 0x09, 0x2D, 0x4E) else rec.p1 if k in (0x0C, 0x2A) else 0
+        return rec.p3 if k in (0x06, 0x08, 0x09, 0x0A, 0x2D, 0x4E) else rec.p1 if k in (0x0B, 0x0C, 0x2A) else 0
 
     def absorbs(self, sim, rec, t):
         el = self.element_of(rec)
@@ -145,8 +172,10 @@ class Spells:
         rec = self.effect(sp); k = rec.kind; w = sim.w
         mdef = 0 if self.has(sim, t, TOAD) else w[t.b + O_MDEF]
         cr = self.creature(sim, t)
-        M = ((self.level(sim, me) * w[me.b + O_MAG]) >> 8) + 4
-        if self.has(sim, t, SHELL): M >>= 1
+        M = ((self.level(sim, me) * (me.mag if isinstance(me, Caster) else min(99, w[me.b + O_MAG] + w[me.b + O_BONUS_MAG]))) >> 8) + 4
+        if self.has(sim, t, SHELL) and k != 0x0A: M >>= 1
+        if k == 0x0F:                                                           # Gravity-like: HP down to 1..8, not Heavy ones
+            return None if cr & HEAVY else (max(0, t.hp - 8), max(0, t.hp - 1))
         if k in (0x07, 0x4D):                                                   # a share of the current HP (Demi, Quarter): not Heavy ones
             if cr & HEAVY or k == 0x4D and self.level(sim, t) % max(1, rec.p1): return None
             v = min(9999, t.hp * rec.p2 >> 4)
@@ -154,10 +183,15 @@ class Spells:
         if k == 0x28: v = min(9999, rec.p2 + (rec.p3 << 8)); return (v, v)       # fixed damage (Blowfish)
         el = self.element_of(rec)
         if k == 0x2A: a0 = a1 = max(1, t.max_hp * rec.p2 >> 4); M = 1; mdef = 0   # share of the max HP
-        elif k in (0x08, 0x4E, 0x0C):                                           # Flare, L3 Flare, Bio: the defence counts a 32nd
+        elif k in (0x08, 0x4E, 0x0C, 0x5F):                                     # Flare, L3 Flare, Bio, Requiem: the defence counts a 32nd
             if k == 0x4E and self.level(sim, t) % max(1, rec.p1): return None
+            if k == 0x5F and not cr & rec.p1: return None                        # Requiem: only its creature type
             a0, a1 = rec.p2, rec.p2 + (rec.p2 >> 5); mdef >>= 5
         elif k == 0x09: a0, a1 = 50, 199; M = rec.p2                            # Comet, Meteo
+        elif k == 0x0B:                                                         # level based: 10..99, M = Level / 8 + 2
+            a0, a1 = 10, 99; M = (self.level(sim, me) >> 3) + 2 >> (1 if self.has(sim, t, SHELL) else 0)
+        elif k == 0x0A:                                                         # physical magic: the physical defence, no Shell, toad / mini = none
+            a0, a1 = rec.p2, rec.p2 + (rec.p2 >> 3); mdef = 0 if self.has(sim, t, TOAD) or self.has(sim, t, MINI) else w[t.b + O_DEF]
         elif k in (0x06, 0x0D, 0x2D, 0x6C):
             if k == 0x2D and self.has(sim, t, FLOAT): return None                # ground magic (Titan): not floating ones
             a0, a1 = rec.p2, rec.p2 + (rec.p2 >> 3)
@@ -279,7 +313,34 @@ class Spells:
             else: out += [(tv[a.i] * 0.6 * (R - 1), self.cast(sp, party=[a.i])) for a in todo]
         return out
 
-    STOP_FRAMES, FRAMES_PER_TICK = 912, 5.35          # measured: Stop (90) keeps the target frozen about 15 s; one ATB tick lasts about 5.35 frames
+    REGEN_FRAMES = 1150                                 # measured: Regen heals Level x Vitality / 16 about every 1150 frames
+
+    def regen_options(self, sim, char, me, mons, ids, floor):
+        """[(value, command)] for Regen on one ally: the healing it brings over the rest of the fight, as far as the monsters' scripted hits
+        will take that much HP off it (the policy's own Cure costs a turn each time)."""
+        R, per = self.rounds(sim, mons); out = []
+        if R < 3 or not mons: return out
+        allies = self.allies(sim)
+        T = R * sum(self.cycle(sim, a) for a in allies) / len(allies) * self.FRAMES_PER_TICK
+        incoming = sum(0.6 * self.threat(m) * T / (self.cycle(sim, m) * self.FRAMES_PER_TICK) for m in mons) / len(allies)
+        for sp, cost in self.known(sim, char, ids):
+            rec = self.rec(sp)
+            if rec.kind != 0x14 or rec.p3 != REGEN[1] or cost > me.mp - floor: continue
+            for a in allies:
+                if self.has(sim, a, REGEN) or self.has(sim, a, STOP): continue
+                lvl, vit = self.level(sim, a), min(99, sim.w[a.b + O_VIT] + sim.w[a.b + O_BONUS_VIT])
+                heal = min(lvl * vit >> 4, a.max_hp) * T / self.REGEN_FRAMES
+                out.append((0.4 * min(heal, incoming, a.max_hp), self.cast(sp, party=[a.i])))
+        return out
+
+    FRAMES_PER_TICK = 5.35                              # measured: one ATB tick lasts about 5.35 frames
+
+    def status_frames(self, sim, me, rec, t):
+        """Frames a timed status (Stop ...) of `rec` lasts on `t` (CalcStatusDuration: 2 x Param2 + caster level / 4 - target level / 4, 30 on a Heavy
+        target, at least 1; a high bit in Param2 skips the target part), a tick being FRAMES_PER_TICK."""
+        n = 2 * (rec.p2 & 0x7F) + (self.level(sim, me) >> 2)
+        if not rec.p2 & 0x80: n = 30 if self.creature(sim, t) & HEAVY else max(1, n - (self.level(sim, t) >> 2))
+        return min(255, n) * self.FRAMES_PER_TICK
 
     def cycle(self, sim, c):
         """ATB ticks between two turns of combatant `c` (ResetATB: weight / 2 + 120 - agility; Haste halves, Slow doubles)."""
@@ -304,7 +365,7 @@ class Spells:
                 if self.has(sim, m, st) or self.immune(sim, m, st) or self.has(sim, m, REFLECT) or (m.i, self.slot(sp)) in banned: continue
                 life = min(R, m.hp / per * len(mons))                                 # focus fire: it lives about hp / (damage per round) rounds
                 acts = lambda rounds: rounds * party_cycle / self.cycle(sim, m)       # its turns in that many party rounds
-                turns = acts(life) if st is SLOW else min(acts(life), self.STOP_FRAMES / (self.FRAMES_PER_TICK * self.cycle(sim, m)))
+                turns = acts(life) if st is SLOW else min(acts(life), self.status_frames(sim, me, rec, m) / (self.FRAMES_PER_TICK * self.cycle(sim, m)))
                 val[m.i] = self.hit_p(sim, me, rec, m, len(mons) if rec.side else 1) * 0.6 * self.threat(m) * turns * frac
             if rec.side and val: out.append((sum(val.values()), self.cast(sp, monsters=mons)))
             elif val:
@@ -322,19 +383,26 @@ class Spells:
         return [(q * sum(m.hp for m in mons), self.cast(83, monsters=mons))]
 
     # ---- white magic: statuses on the party -----------------------------------------------------------------------------
+    def afflicted(self, sim, mons, sts):
+        """[(ally, value)] of the allies under a status of `sts` and what curing it is worth: the turns it costs them over the fight."""
+        R, per = self.rounds(sim, mons)
+        if not mons or R < 1: return []
+        nominal = per / max(1, len(self.allies(sim))); out = []
+        for a in sim.party:
+            if not a.max_hp or self.raw(sim, a, DEAD): continue
+            have = [s for s in sts if self.raw(sim, a, s)]
+            if have: out.append((a, max(LOSS[s] for s in have) * max(nominal, self.turn_value(sim, a, mons)) * min(R, 4)))
+        return out
+
     def cure_options(self, sim, char, me, mons, ids):
         """[(value, command)] for Esuna / Poisona on an ally under a status that costs it turns."""
-        R, per = self.rounds(sim, mons); out = []
-        if not mons or R < 1: return out
-        nominal = per / max(1, len(self.allies(sim)))
+        out = []
         for sp, cost in self.known(sim, char, ids):
             sts = CURES.get(sp)
             if not sts or cost > me.mp: continue
-            for a in sim.party:
-                if not a.max_hp or (a.dead and not self.has(sim, a, STONE)): continue
-                have = [s for s in sts if self.has(sim, a, s)]
-                if not have or a.i == char and self.has(sim, a, MUTE): continue
-                out.append((max(LOSS[s] for s in have) * max(nominal, self.turn_value(sim, a, mons)) * min(R, 4), self.cast(sp, party=[a.i])))
+            for a, v in self.afflicted(sim, mons, sts):
+                if a.i == char and self.has(sim, a, MUTE): continue
+                out.append((v, self.cast(sp, party=[a.i]), a))
         return out
 
     def revive_option(self, sim, char, me, mons):
@@ -450,6 +518,7 @@ class Magic(JobCommand):
         if n in ("Time", "Red", "DuCast"):
             out += M.haste_options(sim, char, me, mons, ids, floor)
             out += M.slow_options(sim, char, me, mons, ids, floor)
+            out += M.regen_options(sim, char, me, mons, ids, floor)
         if n in ("Summon", "DuCast"): out += M.odin_option(sim, char, me, mons, floor)
         return max(out, key=lambda x: x[0]) if out else None
 
@@ -465,12 +534,15 @@ class Cure(JobCommand):
         M = self.m
         if me.dead: return None
         ids = list(FAMILY[self.name])
-        out = M.revive_option(sim, char, me, mons) if self.name in ("Summon", "DuCast") else []
+        out = [(v, c, None) for v, c in M.revive_option(sim, char, me, mons)] if self.name in ("Summon", "DuCast") else []
         if self.name in ("White", "Red", "DuCast"):
             fv = self.p.fight_value(sim, me, mons) if mons else 0
-            out += [(v, c) for v, c in M.cure_options(sim, char, me, mons, ids) if v > fv]
-        if self.name == "Blue": out += M.wind_option(sim, char, me, mons, ids)
-        return max(out, key=lambda x: x[0]) if out else None
+            out += [(v, c, (a.i, "cure")) for v, c, a in M.cure_options(sim, char, me, mons, ids) if v > fv and (a.i, "cure") not in M.claimed(sim)]
+        if self.name == "Blue": out += [(v, c, None) for v, c in M.wind_option(sim, char, me, mons, ids)]
+        if not out: return None
+        v, c, key = max(out, key=lambda x: x[0])
+        if key: M.claim(key, sim)
+        return v, c
 
 
 def _make(name):
