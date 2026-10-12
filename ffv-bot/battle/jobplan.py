@@ -46,6 +46,9 @@ FIT = {
     "Mime": dict(front=6, support=3),
 }
 
+BLUE_FIRST, BLUE_LAST = 0x82, 0x9F
+BLUE_WEIGHT = 2.0               # worth of a full Blue Mage investment (all coming learnable spells unknown) next to the fit total (~3)
+
 # command groups: first command id of each magic type (levels follow)
 GROUP_START = {"MgcSwrd": 44, "White": 50, "Black": 56, "Time": 62, "Summon": 68, "Red": 73}
 # how much a magic level is worth to the run (index = level - 1)
@@ -69,7 +72,7 @@ class Foresight:
     def __init__(self, data, bestiary, fights):
         """`fights`: [(battle id, background, label, scripted)] as campaign.schedule() lists them."""
         d = data
-        counts = []; hps = []; defs = []; mdefs = []; weak = {}; bosses = []; phys = mag = 0.0; n = 0
+        counts = []; hps = []; defs = []; mdefs = []; weak = {}; bosses = []; phys = mag = 0.0; n = 0; blue = {}
         if True:
             for enc, bg, label, scripted in fights:
                 b = d.battle(enc); ids = [m for m in b["monster_ids"] if m is not None]
@@ -78,6 +81,14 @@ class Foresight:
                 n += 1; counts.append(len(mons)); hps.append(sum(m["hp"] for m in mons))
                 defs.append(sum(m["defense"] for m in mons) / len(mons)); mdefs.append(sum(m["mdefense"] for m in mons) / len(mons))
                 if b["boss"] or scripted: bosses.append(max(m["hp"] for m in mons))
+                seen_blue = set()
+                for m in mons:
+                    for e in bestiary.script(m["id"]):
+                        seen_blue.update(a for a in e.attacks if BLUE_FIRST <= a <= BLUE_LAST)
+                for a in seen_blue:                      # learnable by whoever has Learning and is hit (CheckLearnBlue: flag 0x40 = 100%, 0x20 = 50%, 0x10 = 10%)
+                    fl = bestiary.attack(a)["raw"][2]
+                    chance = 0.0 if fl & 0x80 else 1.0 if fl & 0x40 else 0.5 if fl & 0x20 else 0.1 if fl & 0x10 else 0.0
+                    if chance: blue.setdefault(a, [0.0, bestiary.attack(a)["power"]])[0] += chance
                 for m in mons:
                     for bit in range(8):
                         if m["weak"] & (1 << bit): weak[bit] = weak.get(bit, 0) + 1
@@ -88,6 +99,7 @@ class Foresight:
                             elif f: mag += 1
         n = max(1, n)
         self.fights = n
+        self.blue = {a: (v[0] / n, v[1]) for a, v in blue.items()}      # {blue spell id: (chance per fight that it is cast at someone, power)}
         self.avg_count = sum(counts) / n if counts else 1.0
         self.avg_hp = sum(hps) / n if hps else 100.0
         self.avg_def = sum(defs) / n if defs else 0.0
@@ -139,6 +151,17 @@ class Planner:
             total += command_value(self.abil, ab) / need
         return total
 
+    def blue_bonus(self, facts, fs):
+        """0..1: how much a member wearing Blue Mage (the only job with Learning innate: CheckLearnBlue needs the target's Passives1 bit 0x10)
+        would learn from the coming fights: learnable blue spells it does not know yet and that monsters cast at someone, weighted by how
+        often and by power.  A long-term investment: the spells cost the fight's strength now."""
+        known = facts.get("blue_known", set())
+        tot = 0.0
+        for a, (p, pw) in fs.blue.items():
+            if a in known: continue
+            tot += 1.0 * min(1.0, 4 * p) * (0.5 + min(pw, 100) / 100.0)
+        return min(1.0, tot)
+
     def progress(self, wram, char, job):
         lvl, abp = self.js.job_state(wram, char).get(self.d.job_id(job), (0, 0))
         return lvl * 1000 + abp
@@ -174,7 +197,7 @@ class Planner:
         lam = 0.0 if hard else (0.2 + 0.6 * comfort) * (0.5 if fs.bosses else 1.0)
         # score of member m in job j for a role: what the job does for the role now (the member's own numbers) plus the funnel, i.e. the value
         # per ABP of what this member would learn next in the job, relative to the best that any member/job offers for this role
-        F, L = {}, {}
+        F, L = {}, {}; BB = {}
         for role in roles:
             F[role], L[role] = {}, {}
             raw = {}
@@ -187,23 +210,27 @@ class Planner:
             top_lv = max((v[1] for v in raw.values()), default=0.0)
             for k, (fit, lv) in raw.items():
                 F[role][k] = fit; L[role][k] = lv / top_lv if top_lv > 0 else 0.0
+                if k[1] == "BlueMage": BB.setdefault(k[0], self.blue_bonus(facts["BlueMage"][k[0]], fs))
         # every way to give the roles to members (with each one's best job) -> (fit total, funnel total, picks)
         options = []
         for perm in itertools.permutations(range(len(names))):         # perm[k] = the member of role k
-            for weight in (0.0, lam):
+            for weight, force in [(w_, f_) for w_ in (0.0, lam) for f_ in [None] + (list(range(len(roles))) if BB else [])]:       # force: the role slot Blue Mage must take
                 taken = []; fit_t = lv_t = 0.0; pick = []
                 for k, role in enumerate(roles):
                     m = perm[k]
                     opts = sorted(((F[role][(mm, j)] + weight * L[role][(mm, j)] - (0.15 if j in taken else 0.0) + (0.05 if current[m] == j else 0.0), j)
-                                   for (mm, j) in F[role] if mm == m), reverse=True)
+                                   for (mm, j) in F[role] if mm == m and (force != k or j == "BlueMage")), reverse=True)
                     if not opts: break
                     j = opts[0][1]; fit_t += F[role][(m, j)]; lv_t += L[role][(m, j)]; taken.append(j); pick.append(j)
                 else:
-                    options.append((fit_t, lv_t, perm, pick))
+                    bb = sum(BB.get(perm[k], 0.0) for k, j in enumerate(pick) if j == "BlueMage")
+                    options.append((fit_t, lv_t, perm, pick, bb))
         top_fit = max(o[0] for o in options)
         floor = top_fit if hard else top_fit * (0.97 - 0.12 * comfort)       # the funnel may cost a little strength when the last fights were easy
-        ok = [o for o in options if o[0] >= floor] or options
-        fit_t, lv_t, perm, combo = max(ok, key=lambda o: o[0] + lam * o[1])
+        # Blue Mage is an investment: with slack to spare (comfort) and no boss ahead it may cost up to 0.55 of strength to learn blue spells
+        allow = 0.0 if hard or fs.bosses or comfort < 0.75 else 0.55
+        ok = [o for o in options if o[0] + allow * min(1.0, o[4]) >= floor] or options
+        fit_t, lv_t, perm, combo, _ = max(ok, key=lambda o: o[0] + lam * o[1] + (BLUE_WEIGHT * min(1.0, o[4]) if allow else 0.0))
         scores = {r: F[r].get((perm[k], combo[k]), 0.0) for k, r in enumerate(roles)}
         plan = {names[perm[k]]: combo[k] for k in range(len(roles))}
         self.last_plan = dict(roles=dict(zip(roles, combo)), plan=plan, scores=scores, fit=round(fit_t, 2), best_fit=round(top_fit, 2), funnel=round(lv_t, 2))

@@ -453,11 +453,14 @@ class Campaign:
         f = self.variant({n: job for n in names})
         for i in range(len(names)):
             ch = f.character(i); ch.hp = ch.max_hp; ch.mp = ch.max_mp; f.set_character(i, ch)
-        seen = {}
+        seen = {}; blue = {}
         def pol(sim, char):
             for i in range(len(names)):
                 b = CHAR_SPELLS + SPELL_SLOT * i
                 seen[i] = {sp: sim.w[b + 260 + sp] for sp in range(130) if sim.w[b + sp] == sp and not sim.w[b + 520 + sp] & 0x80 and sp < 112}
+            for i in range(len(names)):
+                b = CHAR_SPELLS + SPELL_SLOT * i
+                blue[i] = {sp + 0x23 for sp in range(95, 125) if sim.w[b + sp] == sp and not sim.w[b + 520 + sp] & 0x80}      # blue spells sit at slot = spell id - 0x23
             sim.running = False
             return Command.fight(0)
         run_battle(f.to_wram(), 0, 0, policy=pol, max_frames=4000, sim=self._psim)
@@ -467,7 +470,7 @@ class Campaign:
             out[i] = dict(hp=ch.max_hp, mp=ch.max_mp, str=ch.base_str, agi=ch.base_agi, vit=ch.base_vit, mag=ch.base_mag, castable=cast,
                           attack_power={sp: tp.spell_info(sp)["power"] for sp in cast if sp in tp.attack_all},
                           attack_aoe={sp: sp in tp.summon_row or bool(self.d.r[SPELL_TABLE + 8 * sp] & 0x80) for sp in cast if sp in tp.attack_all},
-                          heal=sum(1 for sp in tp.heal_ids if sp in cast), buffs=sum(1 for sp in tp.buff_ids if sp in cast))
+                          heal=sum(1 for sp in tp.heal_ids if sp in cast), buffs=sum(1 for sp in tp.buff_ids if sp in cast), blue_known=blue.get(i, set()))
         self._probes[key] = out
         return out
 
