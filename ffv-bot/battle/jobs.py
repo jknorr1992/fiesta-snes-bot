@@ -27,10 +27,19 @@ A247, EB82, EBBD, E76C = 0xC2A247, 0xC2EB82, 0xC2EBBD, 0xC2E76C
 SLOTS = ("head", "body", "accessory", "rh_shield", "lh_shield", "rh_weapon", "lh_weapon")
 
 
+CHAR_MODS = 0x11551E                  # per-character stat modifiers (str, agi, vit, mag), 4 bytes each
+FIELD_CHARS = 4                       # Bartz, Lenna, Galuf, Faris
+
+
 class JobSwitcher:
-    def __init__(self, data, rom=None):
+    def __init__(self, data, rom=None, worst=False):
+        """`worst`: every member gets the theoretical "worst character" modifiers (user, 2026-10-12): the lowest of each stat modifier among
+        the four characters, so which member gets which job does not matter and the campaign plans with the weakest possible base."""
         self.d = data
         rom = rom if rom is not None else data.r
+        rows = [tuple(rom[CHAR_MODS + 4 * i:CHAR_MODS + 4 * i + 4]) for i in range(FIELD_CHARS)]
+        self.worst = tuple(min(r[k] for r in rows) for k in range(4)) if worst else None
+        self.rows = rows
         cpu.set_rom(bytes(rom))
         self.m = cpu.Machine()
 
@@ -69,6 +78,12 @@ class JobSwitcher:
         out[cur] = (wram[b + 0x3A] & 0xF, (wram[b + 0x3B] | wram[b + 0x3C] << 8) & 0xFFF)
         return {j: v for j, v in out.items() if v != (0, 0)}
 
+    def _level_mods(self, w, char):
+        """Lower the character's modifiers (+0x24..27, just derived by _c2ebbd) to the worst character's, if that mode is on."""
+        if self.worst is None: return
+        b = CHAR + SIZE * char
+        for k in range(4): w[b + 0x24 + k] = max(0, w[b + 0x24 + k] - self.rows[char][k] + self.worst[k])
+
     # ---- the switch
     def switch(self, wram, char, job, bag=None):
         """New WRAM image with character `char` changed to `job` (id or name).  `bag` ({item id: qty}, modified in place if given)
@@ -96,7 +111,7 @@ class JobSwitcher:
         if bag is not None:
             for it in removed: bag[it] = bag.get(it, 0) + 1
         # 4./5. stat modifiers and derived stats / passive flags
-        w = bytearray(self._call(bytes(w), EBBD, char))
+        w = bytearray(self._call(bytes(w), EBBD, char)); self._level_mods(w, char)
         w = bytearray(self._call(bytes(w), E76C, char))
         # spell levels the commands allow
         cm = list(w[b + 0x16:b + 0x1A]); w[b + 0x3D:b + 0x40] = d.enable_spells(cm)
@@ -107,7 +122,7 @@ class JobSwitcher:
         """Put `commands` (4 command ids; passives as 0x80|index) into the character and rederive modifiers / flags / HP / MP."""
         w = bytearray(wram); b = CHAR + SIZE * char
         w[b + 0x16:b + 0x1A] = bytes(commands)
-        w = bytearray(self._call(bytes(w), EBBD, char)); w = bytearray(self._call(bytes(w), E76C, char))
+        w = bytearray(self._call(bytes(w), EBBD, char)); self._level_mods(w, char); w = bytearray(self._call(bytes(w), E76C, char))
         w[b + 0x3D:b + 0x40] = self.d.enable_spells(list(w[b + 0x16:b + 0x1A]))
         self.fix_hp_mp(w, char)
         return bytes(w)
