@@ -26,6 +26,13 @@ PASSIVE_SCORE = {"Barrier": 12, "Cover": 10, "Counter": 9, "Evade": 8, "Pharmacy
                  "MP +30%": 15, "MP +10%": 6, "Barehand": 6, "Dbl.Grip": 5, "A.Dodger": 4, "DualWield": 8}
 
 
+# commands worth a free slot when the policy supports them (score vs the passives above); the rest default to 20
+NOT_EQUIPPED = ("", "Item", "Fight", "Escape", "Row", "Catch", "Guard", "Kick")
+COMMAND_SCORE = {"Steal": 22, "Mug": 24, "Jump": 30, "Lance": 24, "Throw": 28, "Aim": 22, "Animals": 22, "Slash": 20, "SwdSlap": 20,
+                 "Focus": 22, "Chakra": 26, "Drink": 24, "Recover": 22, "Revive": 22, "Terrain": 24, "Sing": 24, "Dance": 24, "Flirt": 18,
+                 "Mimic": 26, "DuCast": 40, "Mix": 40, "Gil Toss": 24}
+
+
 class Abilities:
     def __init__(self, data):
         self.d, self.r = data, data.r
@@ -57,19 +64,28 @@ class Abilities:
     def passives_known(self, wram, char):
         return [(i - 0x4E, self.passive_name(i - 0x4E)) for i in sorted(self.known(wram, char)) if i >= 0x4E]
 
-    def loadout(self, wram, char, commands, has_shield=False, two_handed=False):
-        """Best commands[4] for the character: Fight/Item fixed, the free slots hold the job's magic command when it has one,
-        else the highest scoring learned passives."""
+    def loadout(self, wram, char, commands, has_shield=False, two_handed=False, supported=()):
+        """Best commands[4] for the character: Fight/Item fixed, the two free slots hold (best first) the job's magic command,
+        then whichever of the job's own class command / learned commands (`supported`: names the policy can really use) and the
+        learned passives score highest, then leftovers."""
         cm = list(commands)
+        scored = []                                     # (score, slot value)
         keep = [c for c in cm[1:3] if c and not (c & 0x80) and self.d.command_name(c) in NEEDED_COMMAND_NAMES]
-        cands = []
+        for c in keep: scored.append((100, c))
         for pid, nm in self.passives_known(wram, char):
             sc = PASSIVE_SCORE.get(nm, 0)
             if nm == "Dbl.Grip" and (has_shield or not two_handed): sc = 0
-            if sc > 0: cands.append((sc, pid))
-        cands.sort(reverse=True)
-        rest = [c for c in cm[1:3] if c and not (c & 0x80) and c not in keep]       # class commands the policy does not use (Guard, Kick, ...)
+            if sc > 0: scored.append((sc, 0x80 | pid))
+        taken = set(keep)
+        for c in sorted(self.known(wram, char) | {x for x in cm[1:3] if x and not x & 0x80}):
+            if c >= 0x4E or c in taken: continue
+            nm = self.d.command_name(c)
+            if nm in supported and nm not in NEEDED_COMMAND_NAMES and nm not in NOT_EQUIPPED:
+                own = c in cm[1:3]                                        # the job's class command: a little preferred
+                scored.append((COMMAND_SCORE.get(nm, 20) + (3 if own else 0), c)); taken.add(c)
+        scored.sort(reverse=True)
+        rest = [c for c in cm[1:3] if c and not (c & 0x80) and c not in taken]       # class commands the policy does not use (Row, ...)
         for s in FREE_SLOTS: cm[s] = 0
-        fill = keep + [0x80 | pid for _, pid in cands] + rest
+        fill = [v for _, v in scored] + rest
         for s, v in zip(FREE_SLOTS, fill): cm[s] = v
         return cm

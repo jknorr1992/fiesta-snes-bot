@@ -51,6 +51,14 @@ def forbidden_commands(allow):
     ok = {x.strip() for x in (allow or "").split(",") if x.strip()}
     return sorted(set(FORBIDDEN_DEFAULT) - ok)
 
+def supported_commands(allow):
+    """Names of the job commands the policy has plugins for, minus the forbidden ones."""
+    import jobcmds
+    for m in ("jobcmds_phys", "jobcmds_util"):
+        try: __import__(m)
+        except ImportError: pass
+    return {c.name for c in jobcmds.REGISTRY if c.name} - set(forbidden_commands(allow))
+
 # ------------------------------------------------------------------ battle workers
 _W = {}
 def _init(rom_path, policy="tactical", boss_deaths=False, latency=0, forbidden=None):
@@ -356,6 +364,7 @@ class Campaign:
         self.stages = build_stages(a.encounters, a.reached, a.areas, a.steps_per_map)
         self.jobs = dict(DEFAULT_JOBS)
         self.js = JobSwitcher(self.d, worst=a.worst_char)
+        self.supported = supported_commands(a.allow_commands)
         self.avail = set(); self.comfort = 0.5; self.unlocks = load_unlocks(); self._probes = {}
         if a.jobs_spec: self.jobs.update(json.load(open(a.jobs_spec)))
         self.pool = Pool(a.jobs, initializer=_init, initargs=(a.rom, a.policy, a.boss_deaths, a.input_latency, forbidden_commands(a.allow_commands)))
@@ -735,7 +744,7 @@ class Campaign:
         for i in range(4):
             ch = state.character(i)
             if not ch.in_party: continue
-            new = self.abil.loadout(w, i, ch.commands, has_shield=bool(ch.lh_shield), two_handed=bool(ch.rh_weapon) and not ch.lh_weapon)
+            new = self.abil.loadout(w, i, ch.commands, has_shield=bool(ch.lh_shield), two_handed=bool(ch.rh_weapon) and not ch.lh_weapon, supported=self.supported)
             if new != ch.commands:
                 w = self.js.set_commands(w, i, new)              # passives also change stat modifiers, flags and max HP / MP
                 log.append(f"{SLOT_NAMES[i]}: " + ", ".join(self.abil.passive_name(c & 0x7F) + "*" if c & 0x80 else self.d.command_name(c) for c in new[1:3] if c))
