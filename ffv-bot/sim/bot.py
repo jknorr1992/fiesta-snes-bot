@@ -45,6 +45,7 @@ def live_state(S, ex):
             if i >= 27: break
             o = raw[0x14 * i:0x14 * i + 0x14]
             if o[8] | o[9] << 8 == n["script"] and (o[1] & 63, o[3] & 63) != (n["x"], n["y"]): s.npcpos[i] = (o[1] & 63, o[3] & 63)
+            if o[8] | o[9] << 8 == n["script"] and bool(o[14] & 1) != s.npc_flag(n["script"]): s.npcvis[i] = bool(o[14] & 1)    # shown/hidden by an object action rather than by the npc flag
         S.with_z(s)
     return s
 
