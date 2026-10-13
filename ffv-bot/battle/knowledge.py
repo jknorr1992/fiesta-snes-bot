@@ -80,12 +80,26 @@ def decode_script(rom, monster_id):
     return entries
 
 
+@dataclass
+class Heal:
+    """One way a monster restores HP on its own turn (see Bestiary.heals)."""
+    attack: int
+    lo: int                           # HP one cast restores: the formula's lowest and highest roll
+    hi: int
+    whom: str                         # "self" | "allies"
+    chance: float                     # share of the monster's attack picks (while the entry fires)
+    gate: object = None               # the entry only fires while the monster's HP is under this
+    cancelled_by_hit: bool = False    # a damage reaction turns it into another form before its next turn: a hit stops the heal
+    @property
+    def mean(self): return 0.5 * (self.lo + self.hi)
+
+
 class Bestiary:
     """Per-ROM knowledge base used by the tactical policy."""
 
     def __init__(self, data):
         self.d, self.r = data, data.r
-        self._scripts = {}
+        self._scripts = {}; self._heals = {}
 
     def script(self, monster_id):
         if monster_id not in self._scripts: self._scripts[monster_id] = decode_script(self.r, monster_id)
@@ -94,6 +108,34 @@ class Bestiary:
     def counters(self, monster_id):
         """Script entries that fire in reaction to something done to the monster and queue attacks."""
         return [e for e in self.script(monster_id) if e.reactive and e.attacks]
+
+    def heals(self, monster_id):
+        """The monster's own healing, from its AI script: Cure-type attacks and damage spells of an element it absorbs, cast on itself (AI target
+        "self") or on the other monsters.  `chance` is the share of its attack slots, so a monster that picks among three attacks and heals with
+        one of them has 1/3 (the veteran does not know which one the AI will roll)."""
+        if monster_id in self._heals: return self._heals[monster_id]
+        d_mon = self.d.monster(monster_id); lvl = d_mon.get("level", 1) or 1
+        ents = [e for e in self.script(monster_id) if e.attacks and not e.reactive]
+        slots = sum(1 for e in ents for a in e.attacks if self.attack(a)["formula"] != NO_ACTION)
+        hit_changes = any(e.reactive and any(c[0] == 0xE for c in e.conds) and e.shows for e in self.script(monster_id))
+        out = []
+        for e in ents:
+            tg = [b for c, b, _ in e.specials if c == 0xF3]
+            whom = "self" if SELF_TARGET in tg else ("allies" if any(t in ALLY_TARGETS for t in tg) else None)
+            lim = e.hp_limit
+            for a in e.attacks:
+                A = self.attack(a)
+                absorbed = bool(A["element"] and d_mon.get("absorb", 0) & A["element"])
+                r = heal_range(d_mon, lvl, A, absorbed)
+                if r is None: continue
+                w = whom or ("self" if A["formula"] in HEAL_FORMULAS else None)
+                if w is None or (w == "allies" and A["formula"] not in HEAL_FORMULAS): continue          # an absorbed element heals the caster only
+                gate = lim[1] if lim else None
+                for h in out:                       # the same attack twice in the script: one pick more often
+                    if (h.attack, h.whom, h.gate) == (a, w, gate): h.chance += 1.0 / max(1, slots); break
+                else: out.append(Heal(a, r[0], r[1], w, 1.0 / max(1, slots), gate, hit_changes))
+        self._heals[monster_id] = out
+        return out
 
     def reaction_matches(self, entry, kind, element=0, spell=None, category=0, item=None, damaging=True):
         """Would our action (kind: 'fight' | 'magic' | 'item') trigger this reactive entry?  Non-reactive
@@ -129,6 +171,23 @@ class Bestiary:
         b = ATTACK_PROP + 8 * aid
         return dict(id=aid, formula=self.r[b + 4], power=self.r[b + 6], element=self.r[b + 7],
                     target=self.r[b], category=self.r[b + 1], cost=self.r[b + 3], raw=bytes(self.r[b:b + 8]))
+
+
+# ---- enemy self-heals ------------------------------------------------------------------------------------------------------
+HEAL_FORMULAS = (0x10, 0x11)                       # Cure / Cure3 style: power (+ 0..power/8) x M, defence-free
+SELF_TARGET = 0x0D                                 # AI target routine "self, unless forced"
+ALLY_TARGETS = (0x0E, 0x0F, 0x10, 0x11, 0x1E, 0x1F, 0x20, 0x21)     # the other monsters (all / random / critical HP / under half HP)
+NO_ACTION = 0xE0                                   # formula of the script's filler attack 238
+
+
+def heal_range(d_mon, level, atk, absorbed=False):
+    """(lo, hi) HP one cast of attack record `atk` restores on a monster of data `d_mon`, or None when it heals nothing.  A Cure-type formula
+    heals (power + 0..power/8) x M; a damage spell of an element the target absorbs heals the same, the defence not counting (measured: Liquid
+    Flame's form 3 casting Fire2 on itself gets 265 = 53 x 5 back).  M = Level x Magic / 256 + 4."""
+    f = atk["formula"]
+    if f not in HEAL_FORMULAS and not (f == 6 and absorbed): return None
+    m = ((level * d_mon["magic"]) >> 8) + 4; p = atk["power"]
+    return p * m, (p + p // 8) * m
 
 # ---- damage ranges (min/max of the game's own formulas, never the next roll) ----------------
 

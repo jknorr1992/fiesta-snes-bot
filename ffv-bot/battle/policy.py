@@ -270,6 +270,7 @@ class VeteranPolicy(TacticalPolicy):
     def __init__(self, data, bestiary, monster_ids, **kw):
         super().__init__(data, **kw)
         self.B = bestiary; self.ids = monster_ids; self.threat = {}; self.kinds = (0, 0); self.mthreat = {}; self.pending = {}
+        self._sim = None; self._mons = []
         try: self.elixir_id = data.item_id("Elixir")
         except Exception: self.elixir_id = None
 
@@ -423,9 +424,35 @@ class VeteranPolicy(TacticalPolicy):
         for c in tgt: self.pending[("h", c.i)] = (sim.frame, c.hp)
         return Command(MAGIC_COMMAND, 0x20, 0, Command.party_mask(*[c.i for c in tgt]), sp)
 
+    # ---- enemy self-heals (user 2026-10-13: the bot may know the enemies' HP and healing abilities) ------------------------------
+    heal_model = True
+    def regain(self, sim, m, whom="self"):
+        """HP monster `m` is expected to get back from its own healing on one of its turns (the script's heals that are open at its current HP,
+        weighted by the share of its attack picks; the mean of the formula's lowest and highest roll).  A heal that a hit stops (a damage
+        reaction turns the monster into another form before its next turn) is not counted: hitting such a monster is the answer to its heal."""
+        if not self.heal_model: return 0.0
+        mid = self.ids[m.i - 4] if m.i - 4 < len(self.ids) else None
+        if mid is None: return 0.0
+        return sum(h.chance * h.mean for h in self.B.heals(mid)
+                   if h.whom == whom and not h.cancelled_by_hit and (h.gate is None or m.hp < h.gate))
+
+    def heal_frame(self, sim, m, whom="self"):
+        """regain() per frame: its turns come every cycle() ATB ticks."""
+        g = self.regain(sim, m, whom)
+        if g <= 0: return 0.0
+        from magicpolicy import spells_of
+        M = spells_of(self)
+        return g / (M.cycle(sim, m) * M.FRAMES_PER_TICK)
+
     def priority(self, m):
-        # kill first what hurts most per HP left (its best possible hit / its remaining HP); equal threats -> weakest first
-        return (self.mthreat.get(m.i, 0) + 1) / (m.hp + 1)
+        # kill first what hurts most per HP left (its best possible hit / its remaining HP); equal threats -> weakest first.  What the monster heals on
+        # its own counts as HP the party has to deal on top (two of its turns), and a monster that heals the others is worth killing first.
+        sim = self._sim
+        hp = m.hp + 1
+        if sim is not None and self.heal_model:
+            hp += 2 * self.regain(sim, m)
+            if len(self._mons) > 1 and self.regain(sim, m, "allies") > 0: hp *= 0.5
+        return (self.mthreat.get(m.i, 0) + 1) / hp
 
     def threshold(self, c):
         hi = self.threat.get(c.i, (0, 0))[1]
@@ -456,6 +483,7 @@ class VeteranPolicy(TacticalPolicy):
         party = sim.party
         mons = [m for m in sim.monsters if not m.dead and m.hp > 0]
         if mons: self.threat, self.kinds = self._scan(sim, party, mons)
+        self._sim = sim; self._mons = mons
         self.banned = set()
         cmd = self._finisher(sim, char, mons)
         if cmd is not None and self._counter_risk(sim, char, cmd, mons) is None: return cmd

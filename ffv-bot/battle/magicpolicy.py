@@ -295,7 +295,15 @@ class Spells:
         """About how many turns each party member still has before the fight ends (monster HP over what the party deals per round), and the
         party's damage per round."""
         per = sum(self.turn_value(sim, a, mons) for a in self.allies(sim))
-        return (sum(m.hp for m in mons) / per if per > 0 else 0.0), per
+        hp = sum(m.hp for m in mons); net = per
+        heal = getattr(self.p, "heal_frame", None)
+        if heal and per > 0:                          # what the monsters heal on their own turns during a party round comes off the damage
+            al = self.allies(sim)
+            if al:
+                T = sum(self.cycle(sim, a) for a in al) / len(al) * self.FRAMES_PER_TICK
+                net = per - sum(heal(sim, m) for m in mons) * T
+                if net <= 0.05 * per: return 99.0, per
+        return (hp / net if net > 0 else 0.0), per
 
     # ---- time magic: haste and slow ---------------------------------------------------------------------------------------
     def haste_options(self, sim, char, me, mons, ids, floor):

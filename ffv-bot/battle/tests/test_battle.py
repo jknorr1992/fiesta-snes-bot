@@ -95,3 +95,13 @@ def test_party_spec_rejects_illegal_values():
 if __name__ == "__main__":
     for n, f in list(globals().items()):
         if n.startswith("test_"): f(); print("ok", n)
+
+
+@needs_rom
+def test_enemy_self_heals_from_scripts():
+    from knowledge import Bestiary
+    B = Bestiary(GameData(ROM))
+    h = B.heals(267)                      # Liquid Flame form 3: Fire2 on itself, an element it absorbs; measured +265 per cast (50..56 x 5)
+    assert len(h) == 1 and h[0].whom == "self" and h[0].lo <= 265 <= h[0].hi and h[0].cancelled_by_hit
+    assert B.heals(265) == []             # form 1 only attacks
+    assert any(x.whom == "allies" for x in B.heals(111))      # Cure Beast heals the others
