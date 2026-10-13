@@ -168,7 +168,7 @@ def main(argv):
             continue
         goal, _ = goal_fn(spec)
         h = heuristic(Rl, spec)
-        replans = 0
+        replans = 0; stuck = 0
         while True:
             s = live_state(S, ex)
             for _ in range(3):
@@ -202,9 +202,13 @@ def main(argv):
                 if diffs:
                     print("   deviation: %s -> re-planning from the live state" % "; ".join(diffs), flush=True)
                     print("   live objects near the party (index: x,y script): %s" % near_objects(ex, lv), flush=True)
-                    ok = False; break
-            replans += 0 if ok else 1
-            if replans > 20: print("too many re-plans", flush=True); return 1
+                    ok = False
+                    if (lv["map"], lv["x"], lv["y"]) == (s.map, s.x, s.y):      # the party has not moved at all: something in the way (a guard or NPC that walks off after a while)
+                        stuck += 1; print("   no movement (%d): waiting 30 s for what blocks the way" % stuck, flush=True); ex.wait(1800)
+                    break
+            else: stuck = 0
+            replans += 0 if ok or stuck else 1
+            if replans > 20 or stuck > 40: print("too many re-plans", flush=True); return 1
     return 0
 
 
