@@ -119,6 +119,14 @@ class TacticalPolicy(SmartPolicy):
 
     def buff_sequence(self): return self.buff_ids
 
+    buff_min_rounds = 5.0
+    def buffs_worth(self, sim, mons):
+        """A buff costs one turn per member: only worth it when the fight is expected to last several party rounds (monster HP over what the party deals per round, magicpolicy.rounds); a short boss fight is won by attacking."""
+        try:
+            from magicpolicy import spells_of
+            return spells_of(self).rounds(sim, mons)[0] >= self.buff_min_rounds
+        except Exception: return True
+
     def priority(self, m): return -m.hp                   # higher = kill first (focus fire on the weakest)
 
     def _cure_reserve(self, sim, char):
@@ -147,7 +155,7 @@ class TacticalPolicy(SmartPolicy):
         c = self._job_command(sim, me, mons, "support")
         if c is not None: return c
         # 4. buffs for hard fights
-        if self.hard and mons:
+        if self.hard and mons and self.buffs_worth(sim, mons):
             for sp in self.buff_sequence():
                 cost = self._known(sim, char, sp)
                 if cost is None or cost > me.mp - self._cure_reserve(sim, char): continue
@@ -368,12 +376,13 @@ class VeteranPolicy(TacticalPolicy):
                     if slot is not None:
                         heal = self._item_heal(item, deficit)
                         # a turn is worth more than a Potion's 50 HP unless it lifts the ally out of reach of the strongest hit or fills a good part of the gap
-                        if self.potion_rule and healer_ready and not (a.hp <= hi or heal >= 0.4 * deficit): continue
+                        if self.potion_rule and healer_ready and not ((a.hp <= hi < a.hp + heal if self.potion_strict else a.hp <= hi) or heal >= 0.4 * deficit): continue
                         self.pending[("h", ally)] = (sim.frame, a.hp)
                         return Command.item(slot, party=(ally,))
         return None
 
     potion_rule = True
+    potion_strict = True
     finisher_rule = True
 
     def _item_heal(self, item, deficit):
