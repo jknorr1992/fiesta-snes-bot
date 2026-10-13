@@ -44,7 +44,7 @@ class Nav(Game):
         for slot in range(4):
             b = 0x500 + 0x50 * slot
             if self.u8(b) & 0x40: continue                                     # not in the party
-            self.write(b + 6, bytes([0x0F, 0x27]))                              # HP 9999
+            self.write(b + 6, bytes([0x0F, 0x27, 0x0F, 0x27]))                  # HP and max HP 9999 (a boss that opens with a hit above the party's real max HP would wipe it before the first command)
             self.write(b + 0x1A, bytes([self.u8(b + 0x1A) & 0x3F]))             # not dead (0x80) / stone (0x40)
             for o, v in self.GEAR.items(): self.write(b + o, bytes([v]))
 
