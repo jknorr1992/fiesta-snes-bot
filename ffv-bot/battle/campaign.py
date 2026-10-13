@@ -91,6 +91,20 @@ def _policy(d, enc, all_out=False):
         return VeteranPolicy(d, _W["bestiary"], b["monster_ids"], hard=hard, forbidden=_W.get("forbidden"))
     return TacticalPolicy(d, hard=hard, forbidden=_W.get("forbidden"))
 
+class Spy:
+    """Wraps a battle policy and notes who acted with what (character, command, spell / item slot) and the lowest HP each member showed at any of
+    its turns, for the solved-fight records (solved.py).  Everything else is the policy's."""
+    def __init__(self, pol):
+        self.pol = pol; self.acts = set(); self.minhp = [1 << 30] * 4
+    def __call__(self, sim, char):
+        for i, c in enumerate(sim.party):
+            if c.max_hp and c.hp < self.minhp[i]: self.minhp[i] = c.hp
+        cmd = self.pol(sim, char)
+        if cmd is not None: self.acts.add((char, cmd.command, cmd.selected))
+        return cmd
+    def __getattr__(self, name): return getattr(self.pol, name)
+
+
 def _run(job):
     from scenario import run_battle
     wram, enc, bg, seed, mode, timer = job
@@ -100,7 +114,7 @@ def _run(job):
     pol = None
     for attempt in range(4):             # a rare sim deadlock (direct command raced a status change) is retried on the next seed; counted in `stalls`
         w[RNG_SEED] = (seed + attempt) & 0xFF
-        pol = FleePolicy() if mode == "flee" else _policy(d, enc, all_out=(mode == "allout"))
+        pol = FleePolicy() if mode == "flee" else Spy(_policy(d, enc, all_out=(mode == "allout")))
         _W["sim"].hold = (L | R) if mode == "flee" else 0           # running away = holding L+R
         r = run_battle(bytes(w), enc, bg, policy=pol, max_frames=40000, sim=_W["sim"], keep_wram=True)
         _W["sim"].hold = 0
@@ -115,7 +129,8 @@ def _run(job):
         flawless = r.outcome == "victory"
     else:
         flawless = r.outcome == ("escaped" if mode == "flee" else "victory") and not pol.died and not dead_end
-    return dict(outcome=r.outcome, flawless=flawless, frames=frames, real_frames=r.frames, gil=r.gil_gained, exp=r.exp_gained, items=r.items_won,
+    spy = pol if isinstance(pol, Spy) else None
+    return dict(outcome=r.outcome, flawless=flawless, acts=sorted(spy.acts) if spy else [], minhp=list(spy.minhp) if spy else [], frames=frames, real_frames=r.frames, gil=r.gil_gained, exp=r.exp_gained, items=r.items_won,
                 stalls=stalls, wram=r.wram if r.outcome in ("victory", "escaped") else b"")
 
 # ------------------------------------------------------------------ gear / shops
@@ -853,9 +868,9 @@ class Campaign:
                 info["exp"] = self.adopt(ok); info["frames"] = self._frames; return True, info
         memo = not (scripted or optional or self.timer_on or b["boss"] or b["no_run"]) and self.a.memo
         if memo:
-            sv = self.solved_fights(); rec, why = sv.lookup(enc, bg, self.state)
+            sv = self.solved_fights(); rec, assign, why = sv.lookup(enc, bg, self.state)
             if rec is not None:
-                f = Field.from_wram(self.state.to_wram(), self.d); exp = sv.apply(enc, bg, f, rec); self.state = f
+                f = Field.from_wram(self.state.to_wram(), self.d); exp = sv.apply(enc, bg, f, rec, assign); self.state = f
                 self.memo_fights = getattr(self, "memo_fights", 0) + 1
                 return True, dict(battle=enc, name=self.d.battle_summary(enc).split(": ", 1)[-1], rate=rec["rate"], map=str(label), memo=True, exp=exp, frames=rec.get("frames", 0))
             if why not in ("no record",): sv.invalid += 1
