@@ -51,3 +51,19 @@ Tried reusing the unchanged-map flood for a changed map when none of the tiles t
 map:46 stage 39 s vs 40 s. Only 41 of 356 attempts could reuse the base flood (the pyramid's timer doors sit on the walked area), and the flood
 is about 10 of 16 s spent mostly on distinct tile configurations. Not kept. Event-lock chains need no extra grouping: `$BE` is screen shake,
 the engine already locks control while an event runs, and the VM yields one final tile configuration per event, so there is already one flood per used state.
+
+## Fresh new-game run to THE END (2026-10-13, battle cheats on)
+
+`bot.py --fresh @data/goals_full.txt` (planner plus live walker, pad input only, battle cheats on, mandatory path). It ran in eleven pieces
+(logs in /mnt/project-files/ffv-bot-notes/live_run_logs/), each piece resumed from the live emulator state with the goals that were left,
+and reached the ending's final character-stats screen after the last boss (event 1924, map 509 (30,18)); the saved state is
+/mnt/project-files/ffv-bot-notes/live_run_the_end.state. Party: four Freelancers, level 28, no job planning (the bot only walks the route).
+Not one uninterrupted process: stalls and a container restart (the emulator died, the run resumed from the last battle snapshot) split it.
+
+Bugs the live run found and the fixes:
+- `live_state` did not read object visibility from the live object table (offset 14, bit 0), so NPCs shown by object actions (Boko on map 122) blocked the walker.
+- The planner cannot target a plain tile (no `pos:` goal unless a trigger or entrance sits there): `at:X:Y` is a live-only step (breadth-first walk on the live local map); `open:DIR` presses A for the Tule Tent chest.
+- Fast-forward toggling: with the frame counter frozen (battle, scenes) `fast_forward` toggled twice, left the emulator running uncapped and every later battle hung. One toggle is one toggle when the rate cannot be judged.
+- Submarine: a dive scene ignores the pad until it ends (wait for it), and `settle()` mashing A dived or surfaced again (dive/surface actions now only wait).
+- Void study book (map 493): two interactions are needed live (events 1677 then 1653); the bot re-plans and does it.
+- Void boss at map 500 (event 1670): the party was wiped before the first command (max HP about 800), the game over reset the console and the A mashing started a new game. The field cheat now sets max HP 9999 as well.
