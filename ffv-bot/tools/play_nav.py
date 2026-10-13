@@ -204,8 +204,9 @@ class Nav(Game):
         p = self.fpos(); self.wait(8)
         return self.fpos() != p
 
-    def dialog(self, n=40):
-        """Mash A while a message box is open or a script is running; returns presses used. Non-battle cutscenes run fast-forwarded
+    def dialog(self, n=40, msg_only=False):
+        """Mash A while a message box is open or a script is running; returns presses used. msg_only: press A only while a message box is open
+        (an A pressed after the last box closed starts the same interaction again: a valve or switch that toggles flips back). Non-battle cutscenes run fast-forwarded
         (fast_forward switches itself off again before battles, name entry and when the scene is over, so walking keeps real-time timing)."""
         k = quiet = 0
         try:
@@ -218,15 +219,16 @@ class Nav(Game):
                     self.wait(4); continue
                 quiet = 0
                 self.fast_forward(True)           # busy and not in battle: a cutscene
+                if msg_only and not self.u8(0xB57): self.wait(4); continue
                 self.press("A", 3, 3); k += 1
         finally:
             self.fast_forward(False)
         return k
 
-    def settle(self, limit=400):
+    def settle(self, limit=400, msg_only=False):
         """Run scenes to the end: keep pressing A until nothing is running for ~2 s."""
         for _ in range(limit):
-            self.dialog(60)
+            self.dialog(60, msg_only)
             self.wait(10)
             if not self.busy():
                 self.wait(20)
