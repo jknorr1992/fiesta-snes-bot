@@ -700,10 +700,35 @@ class Campaign:
         return min(fr)
 
     # ---- fights
+    def _code_key(self):
+        """Hash of the ROM and of the source files whose behaviour decides a battle: a cached batch is only valid for the same ROM and code."""
+        if "_ckey" not in self.__dict__:
+            h = hashlib.sha1(open(self.rom_path, "rb").read())
+            for f in sorted(os.listdir(HERE)):
+                if f.endswith((".py", ".c", ".h")) and f not in ("campaign.py",): h.update(open(os.path.join(HERE, f), "rb").read())
+            h.update(repr((self.a.policy, self.a.boss_deaths, self.a.input_latency, forbidden_commands(self.a.allow_commands))).encode())
+            self._ckey = h.hexdigest()
+        return self._ckey
+
     def batch(self, enc, bg, runs, mode="fight", state=None):
+        """Battles are deterministic for (ROM + code, party state, encounter, background, seed, mode): identical batches (a resumed or restarted run, a repeated probe) come from the disk cache (--cache DIR; --no-cache turns it off)."""
+        import pickle, zlib
         w = (state or self.state).to_wram()
         seeds = [(k * 97 + (enc * 31) + self.seed_shift) % 256 for k in range(runs)]
-        return self.pool.map(_run, [(w, enc, bg, s, mode, self.timer_on) for s in seeds], chunksize=2)
+        path = None
+        if self.a.cache:
+            key = hashlib.sha1(self._code_key().encode() + w + repr((enc, bg, tuple(seeds), mode, self.timer_on)).encode()).hexdigest()
+            path = os.path.join(self.a.cache, key[:2], key + ".z")
+            if os.path.exists(path):
+                try:
+                    res = pickle.loads(zlib.decompress(open(path, "rb").read())); self.cache_hits = getattr(self, "cache_hits", 0) + 1; return res
+                except Exception: pass
+        res = self.pool.map(_run, [(w, enc, bg, s, mode, self.timer_on) for s in seeds], chunksize=2)
+        if path:
+            self.cache_misses = getattr(self, "cache_misses", 0) + 1
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            tmp = path + ".tmp%d" % os.getpid(); open(tmp, "wb").write(zlib.compress(pickle.dumps(res), 1)); os.replace(tmp, path)
+        return res
 
     def variant(self, assign):
         """A copy of the party state with the members in the jobs of `assign` ({name: job}): the game's own job change (stat modifiers,
@@ -1162,7 +1187,7 @@ class Campaign:
     def finish(self, report, stuck=None):
         out = os.path.join(self.a.out, "report.json")
         json.dump(dict(fights=self.fight_log, report=report, final=self.summary_line(), tents_used=self.tents, fights_simulated=self.fights_run, stuck=stuck), open(out, "w"), indent=1)
-        self.say(f"finished: {self.summary_line()} | tents {self.tents} | batches {self.fights_run}")
+        self.say(f"finished: {self.summary_line()} | tents {self.tents} | batches {self.fights_run} (cache: {getattr(self, 'cache_hits', 0)} hits, {getattr(self, 'cache_misses', 0)} misses)")
         return report
 
 
@@ -1187,6 +1212,8 @@ def make_parser():
     ap.add_argument("--reached", default=os.path.join(ROOT, "data", "reached_regions.json"))
     ap.add_argument("--areas", default=os.path.join(ROOT, "data", "map_areas.json"))
     ap.add_argument("--shops", default=os.path.join(ROOT, "data", "shops_by_map.json"))
+    ap.add_argument("--cache", default=os.path.join(os.path.expanduser("~"), ".cache", "ffv-bot", "batches"), help="directory of cached battle batches (keyed by ROM + battle code + state + seeds)")
+    ap.add_argument("--no-cache", dest="cache", action="store_const", const=None, help="simulate every batch afresh")
     ap.add_argument("--no-flee", dest="flee", action="store_false", help="never run away from a random fight that cannot be won flawlessly")
     ap.add_argument("--flee-first", action="store_true", help="run away from every runnable random fight that can be escaped flawlessly (95%%); fight the rest")
     ap.add_argument("--until", type=int, default=None, help="stop after finishing this stage index (--list-stages shows them)")
