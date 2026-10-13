@@ -368,10 +368,13 @@ class VeteranPolicy(TacticalPolicy):
                     if slot is not None:
                         heal = self._item_heal(item, deficit)
                         # a turn is worth more than a Potion's 50 HP unless it lifts the ally out of reach of the strongest hit or fills a good part of the gap
-                        if not (a.hp <= hi < a.hp + heal or heal >= 0.4 * deficit): continue
+                        if self.potion_rule and healer_ready and not (a.hp <= hi or heal >= 0.4 * deficit): continue
                         self.pending[("h", ally)] = (sim.frame, a.hp)
                         return Command.item(slot, party=(ally,))
         return None
+
+    potion_rule = True
+    finisher_rule = True
 
     def _item_heal(self, item, deficit):
         """HP a healing item restores: base heal x multiplier of its record (Potion 10 x 5 = 50, Hi-Potion 50 x 10 = 500), a full heal for an Elixir."""
@@ -423,7 +426,7 @@ class VeteranPolicy(TacticalPolicy):
         """The last monster left and an attack spell whose lowest roll (the formula's minimum: (power - magic defence) x M, doubled and defence-free
         on a weakness, never the next roll) takes all its HP: a veteran ends the fight instead of reviving and healing while it is still there.
         -> Command or None."""
-        if len(mons) != 1: return None
+        if len(mons) != 1 or not self.finisher_rule: return None
         me = sim.party[char]; m = mons[0]
         if me.dead or (m.i, "finish") in self.banned: return None
         mult = ((me.level * sim.w[me.b + 0x2B]) >> 8) + 4
