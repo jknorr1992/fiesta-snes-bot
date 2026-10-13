@@ -61,6 +61,7 @@ class VM:
         self.E = EventRom(rom.r)
         self._off_idx = {}
         self.trace = None
+        self.ignore_timer = None      # callable(event, map) -> True when a timer's event changes nothing that matters (an idle loop: NPCs shuffling about); such a timer is not tracked
 
     def offidx(self, ev):
         if ev not in self._off_idx:
@@ -134,10 +135,14 @@ class VM:
                     tgt = self.offidx(e).get(base + 4 * ks[0], len(cm))
                     stack[-1] = (e, tgt, end, rep); continue
                 if op == 0xE2:
-                    # battle that can be lost: continue on the win path (skip the 4-byte lose branch)
+                    # battle that can be lost: the win path skips the 4-byte lose handler (EventCmd_e2: IncEventPtr7); losing runs it (IncEventPtr3)
+                    # and a scripted defeat can be how the story goes on, so both are explored (a handler that ends in game over is pruned by the planner)
                     cm = self.E.cmds(e)
                     skip, k = 0, pc + 1
                     while skip < 4 and k < len(cm): skip += cm[k].n; k += 1
+                    st2 = [f for f in stack]; st2[-1] = (e, pc + 1, end, rep)
+                    s2 = s.clone()
+                    work.append((s2, st2))
                     stack[-1] = (e, k, end, rep); continue
                 if op == 0xE7:
                     s.ended = True; continue
@@ -162,7 +167,9 @@ class VM:
         elif op == 0x0C: s.face = (s.face + 2) & 3          # party action $0c flips the facing (eor #$04 on the direction byte)
         elif 0x10 <= op < 0x18:
             s.face = (op - 0x10) >> 1
-        elif op == 0xD1: s.timer = (b[1] * 60 + 1, b[2] | b[3] << 8)      # start timer: seconds, event (EventCmd_d1)
+        elif op == 0xD1:                                                    # start timer: seconds, event (EventCmd_d1)
+            tev = b[2] | b[3] << 8
+            s.timer = None if self.ignore_timer and self.ignore_timer(tev, s.map) else (b[1] * 60 + 1, tev)
         elif op == 0x7C: s.timer = None                                  # disable timer
         elif op in (0xA2, 0xA3): s.set_flag(b[1], op == 0xA2)
         elif op in (0xA4, 0xA5): s.set_flag(256 + b[1], op == 0xA4)

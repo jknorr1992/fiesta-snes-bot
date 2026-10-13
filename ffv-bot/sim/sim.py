@@ -55,6 +55,8 @@ class Sim:
         for m in range(511):
             for n in self.R.npcs(m): self.npc_mask |= 1 << n["script"]
         self._rel = {}
+        self.V.ignore_timer = self.timer_idle
+        self._idle = {}
 
     def relevant(self, ev):
         """does running event `ev` change anything that can matter (read flags, NPCs, maps, vehicles, tiles, party position)?"""
@@ -65,6 +67,35 @@ class Sim:
                      any(self.read_mask >> n & 1 for n in f.sets | f.clears) or
                      any(self.npc_mask >> n & 1 for n in f.npc_on | f.npc_off))
             self._rel[ev] = r
+        return r
+
+    def timer_idle(self, ev, m):
+        """is the timer event `ev` (started on map `m`) an idle loop: nothing it runs changes anything that matters? Tile changes count only when they
+        change what the party can walk on (doors that open and close do, torches and water that flicker do not)."""
+        k = (ev, m)
+        r = self._idle.get(k)
+        if r is not None: return r
+        f = self.A.eff[ev]
+        if (f.loads or f.veh or f.steps or f.ends or f.gameover or any(self.read_mask >> n & 1 for n in f.sets | f.clears) or
+                any(self.npc_mask >> n & 1 for n in f.npc_on | f.npc_off)):
+            r = False
+        elif not f.mods: r = True
+        elif m < 5: r = False
+        else:
+            ids = {}; seen = set(); st = [ev]; r = True
+            while st and r:
+                x = st.pop()
+                if x in seen or x >= self.A.E.N: continue
+                seen.add(x); d = self.A._direct[x]; st += list(d.calls)
+                for op, b in d.modcmds:
+                    if op != 0xF3: r = False; break
+                    w, h = (b[3] & 15) + 1, (b[3] >> 4) + 1; x0, y0 = b[1] & 0x3F, b[2]
+                    for j in range(h):
+                        for i in range(w): ids.setdefault(((x0 + i) & 63, (y0 + j) & 63), set()).add(b[4 + j * w + i])
+            if r:
+                tp = self.R.tileprops(m); base = self.R.layer(m)
+                r = all(len({tuple(tp[t]) for t in ts | {base[y * 64 + x]}}) == 1 for (x, y), ts in ids.items())
+        self._idle[k] = r
         return r
 
     def key(self, s):
@@ -274,7 +305,8 @@ class Sim:
             if ev: return ("event", ev)
         return None
 
-    STEP_FRAMES = 8                                     # one tile at walking speed: 2 px per frame, 16 px per tile
+    STEP_FRAMES = 8
+    PRESS_FRAMES = 6                                    # an A tap while a timer runs                                     # one tile at walking speed: 2 px per frame, 16 px per tile
 
     def _timed_actions(self, s):
         """While an event timer (d1) runs, time matters: one tile or one wait of STEP_FRAMES at a time, so that the timer's event fires at the
@@ -287,6 +319,23 @@ class Sim:
             a = Action("walkstep", "step %s to (%d,%d) on map %d" % ("?URDL"[d], nx, ny, s.map), step, (tgt, True), FACE_OF_DIR[d])
             a.path = [d]; a.frames = self.STEP_FRAMES
             acts.append(a)
+        # press A where the party stands (a button trigger on this tile, or an NPC in front): the A tap takes a few frames of the timer
+        ts = self.trig_at(s.map).get((s.x, s.y))
+        if ts is not None:
+            ev = self.pick(s, self.R.trigger_script(ts), s.face, True)
+            if ev:
+                a = Action("press", "stand (%d,%d) map %d facing %d +A: event %d" % (s.x, s.y, s.map, s.face, ev), 1, (State.clone(s), False), s.face, ev)
+                a.path = []; a.frames = self.PRESS_FRAMES
+                acts.append(a)
+        dx, dy = LDIRS[DIR_OF_FACE[s.face]]
+        tx, ty = (s.x + dx) & 63, (s.y + dy) & 63
+        for i, script, ox, oy, st in self.objects(s):
+            if (ox, oy) == (tx, ty):
+                ev = self.pick(s, self.R.npc_script(script), s.face, True)
+                if ev:
+                    a = Action("talk", "talk to npc %d (script %d) from (%d,%d) map %d: event %d" % (i, script, s.x, s.y, s.map, ev), 1, (State.clone(s), False), s.face, ev)
+                    a.path = []; a.stand = DIR_OF_FACE[s.face]; a.frames = self.PRESS_FRAMES
+                    acts.append(a)
         rem = s.timer[0]
         for fr, nm in ((self.STEP_FRAMES, "wait a step"), (rem, "wait for the timer")):
             if nm == "wait for the timer" and rem <= self.STEP_FRAMES: continue
@@ -528,6 +577,18 @@ class Sim:
             acts.append(Action("walk" + kind[0], "world %d walk to (%d,%d): %s %s" % (w, npos[0], npos[1], kind[0], kind[1] if kind[0] in ("event", "hook") else (("-> map %d" % kind[1]["map"]) if kind[0] == "entrance" else "")),
                                dist[cur] + 1, (tgt, True), d, kind[1] if kind[0] in ("event", "hook") else None))
             acts[-1].path = self._backtrack(par, cur) + [d]
+        # a Tent from the Item menu on the world map runs trigger script 17 (menu item $F0); only a story event matters (the default entry just rests)
+        if s.veh == 0:
+            ts = self.R.trigger_script(17); ev = self.pick(s, ts)
+            if ev and ts and ev != ts[-1][1]:
+                acts.append(Action("tent", "use a Tent on the world map: event %d (script 17)" % ev, 3, (State.clone(s), False), None, ev))
+                acts[-1].path = []
+        # the flying machine with flag 506 set (event 162): A asks whether to fly up; the first answer runs trigger script 15 (the flight scene on map 221)
+        if vt == 6 and s.flag(506):
+            ev = self.pick(s, self.R.trigger_script(15))
+            if ev:
+                acts.append(Action("flyup", "A in the flying machine: flight scene (script 15)", 1, (State.clone(s), False), None, ev))
+                acts[-1].path = []
         # land the current vehicle here (A)
         if vt in (1, 2, 3, 6):
             comp = self._foot_comp(w, mk)
@@ -701,7 +762,7 @@ class Sim:
             out = self._run_after(tgt, act.event, 0)
             for o in out: o.x, o.y = 20, 61
             return out
-        if act.kind in ("press", "talk", "turn"):
+        if act.kind in ("press", "talk", "turn", "flyup", "tent"):
             return self._run_after(tgt, act.event, 0) if act.event else [tgt]
         if act.kind == "land":
             ev = self.pick(tgt, self.R.trigger_script(288))

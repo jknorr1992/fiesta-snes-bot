@@ -1,0 +1,13 @@
+# New game to the credits, one goal per token, in order (vanilla FFV (J) test data; the planner derives every route from the ROM, these are only the stage goals).
+# verified with sim/check_chain.py (planner only, from the new-game state) and, in parts, live on the emulator
+# 1. new game to the Karnak ship deck (flag 56)
+flag:306 flag:16 flag:321 flag:322 flag:323 flag:17 flag:481 flag:282 flag:283 flag:307 flag:19 flag:256 flag:20 flag:284 flag:21 flag:317 flag:288 flag:23 flag:24 flag:272 flag:320 flag:27 flag:28 flag:32 flag:270 flag:33 flag:35 flag:36 flag:257 flag:482 flag:266 flag:39 flag:477 flag:158 flag:157 flag:159 flag:155 flag:156 flag:483 flag:42 map:152 flag:45 flag:262 flag:280 flag:46 flag:308 flag:309 flag:313 flag:269 flag:311 flag:259 flag:258 flag:260 flag:47 flag:48 flag:475 flag:49 flag:281 flag:484 flag:295 flag:265 flag:264 flag:296 flag:297 flag:298 flag:50 flag:51 flag:53 flag:54 flag:55 flag:56
+# 2. ship to the Ancient Library, desert, Ruined City, airship (flag 70/73/74), flight scene on map 221, Lonka Ruins, meteors
+flag:57 flag:58 flag:59 flag:60 map:206 flag:171 flag:172 flag:256 map:213 map:192 map:210 flag:68 flag:486 flag:70 flag:73 flag:74
+flag:181 flag:182 flag:180 flag:75 flag:178 map:195 map:196 map:197 map:215 map:216 map:217 pos:218:23:29 pos:218:23:15 flag:80 flag:83 flag:40 flag:84 map:123
+# 3. world 2: arrival island (Tent), Castle Exdeath, Bal, Surgate, Barrier Tower, Ghido's cave, Moore, Guardian Tree, Castle Exdeath again
+map:1 map:230 map:1 map:247 map:248 map:307 map:308 map:253 map:309 map:310 map:259 flag:302 map:265 map:361 map:291
+flag:165 flag:102 flag:285 flag:408 flag:256 flag:103 map:299 map:300 flag:257 flag:230 flag:489 flag:510 flag:109 flag:193
+map:330 flag:110 map:331 flag:111 map:329 map:328 map:334 map:335 map:336 map:337 map:338 map:339 map:340 map:341 map:342 flag:192 map:344 map:345 map:346
+map:347 map:348 flag:113 map:344 flag:196
+map:350 map:356 map:357 map:363 flag:492 flag:116 map:360 flag:117 map:225 map:227 map:243 map:276 map:244 map:245 map:255 pos:255:21:35 pos:255:14:33 pos:245:46:4 map:256 map:258 flag:121

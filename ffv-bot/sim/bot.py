@@ -34,7 +34,7 @@ def live_state(S, ex):
     pm = ex.read(0xAF5, 4)
     s.parent = (pm[0] | pm[1] << 8, pm[2], pm[3])
     tb = ex.read(0xAFB, 5)                      # event timer (d1): enabled, counter, event
-    if tb[0] == 1: s.timer = (tb[1] | tb[2] << 8, tb[3] | tb[4] << 8)
+    if tb[0] == 1 and not S.timer_idle(tb[3] | tb[4] << 8, m): s.timer = (tb[1] | tb[2] << 8, tb[3] | tb[4] << 8)
     if m >= 5:
         base = LocalMap(S.R, m)
         ids = b"".join(ex.read(0x10000 + i, 1024) for i in range(0, 4096, 1024))

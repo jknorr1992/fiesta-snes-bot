@@ -84,6 +84,8 @@ class Exec(Nav):
         if act.kind in ("land", "boardA", "dive", "surface"):                  # A lands the vehicle we ride / boards the one we stand on
             self.press("A", 4, 10); self.wait(90)
             if act.kind == "surface": self.wait(60)           # the surfacing scene
+        if act.kind == "flyup":                                      # A asks whether to fly up; the first answer (the cursor starts on it) starts the scene
+            self.press("A", 4, 10); self.wait(60); self.press("A", 4, 10); self.wait(90)
         if act.kind in ("talk", "turn", "press"):
             self.wait(30)                                   # let the last step's walk animation finish before turning / pressing
             if act.kind == "talk" and act.npc is not None and act.stand and self.chase_talk(act): self.settle(); return
