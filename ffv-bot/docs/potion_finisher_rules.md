@@ -1,4 +1,4 @@
-# WIP: Potion usefulness and finisher rule (untested on Liquid Flame)
+# Potion usefulness and finisher rules (merged)
 
 Branch `wip/byblos-potion-fix`, change in `ffv-bot/battle/policy.py` (VeteranPolicy). Not merged to main because Liquid Flame looked worse.
 
@@ -18,3 +18,9 @@ States are WRAM dumps written by `ffv-bot/battle/campaign.py` as `fail_<enc>_<se
 
 ## Run cZ2 result (old policy, commit 4baf6f8)
 Finished the whole encounter file but the Ancient Library took 7 failed attempts and grinding to lv22 (56k gil unspent); Byblos failed at 80-94% flawless several times. Karnak escape cleared on its third try. Goal of the fix: pass Byblos with far fewer levels.
+
+## Result of the split (2026-10-13, fresh campaign state at the lv15 cap, VeteranPolicy flags `potion_rule`, `finisher_rule`)
+- Finisher rule: harmless everywhere (Liquid Flame 240/240 on its own).
+- Potion rule as first written (allowed only if the Potion lifts the ally out of the strongest hit's reach, or fills 40% of the gap): Liquid Flame 232/240 vs 240/240 without.
+- Fix: the rule applies only while a healer can still cast, and a Potion is also allowed whenever the ally is within reach of the strongest hit (`a.hp <= hi`). Liquid Flame 240/240. Pages (enc 93, 12 -> 15 of 60), Ifrit (enc 494, 10 -> 15 of 60) and Castle Karnak (enc 86, 57/60 either way) are not worse.
+- Not re-measured: Byblos with the relaxed rule (the old state is lost; the relaxed rule only permits more Potions than the version that gave 60/60).
