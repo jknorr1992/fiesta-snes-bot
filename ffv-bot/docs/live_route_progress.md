@@ -57,7 +57,7 @@ the engine already locks control while an event runs, and the VM yields one fina
 `bot.py --fresh @data/goals_full.txt` (planner plus live walker, pad input only, battle cheats on, mandatory path). It ran in eleven pieces
 (logs in /mnt/project-files/ffv-bot-notes/live_run_logs/), each piece resumed from the live emulator state with the goals that were left,
 and reached the ending's final character-stats screen after the last boss (event 1924, map 509 (30,18)); the saved state is
-/mnt/project-files/ffv-bot-notes/live_run_the_end.state. Party: four Freelancers, level 28, no job planning (the bot only walks the route).
+/mnt/project-files/ffv-bot-notes/live_run_the_end.state. The stats screen shows Krile as LV28 Freelancer; there is no job planning in this run (the bot only walks the route).
 Not one uninterrupted process: stalls and a container restart (the emulator died, the run resumed from the last battle snapshot) split it.
 
 Bugs the live run found and the fixes:
