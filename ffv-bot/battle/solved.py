@@ -10,8 +10,8 @@ A record holds, for the flawless runs of the batch:
 A later instance REUSES the record when its party can fill the recorded roles (members are matched to the roles in any order): an actor needs
 the same job, passives and exact gear, no lower level, stats, max HP / MP, the used commands in its command slots and the used spells known; a tank
 no lower level / max HP and the same gear; an idle member only has to be alive and free of ailments.  Nobody may run short (HP keeps a margin over
-the worst recorded loss, MP, items), and the rewards must not cross a threshold (a level-up, or an ability / job-level ABP cost): a level-up
-changes the party, so that fight is simulated afresh.  Gear is compared item by item, never as a score: a piece can matter for an element, a
+the worst recorded loss, MP, items).  The rewards are not taken from the record: a flawless fight always pays the same exp, ABP and gil, and the
+game's own victory code pays it out (apply), so level-ups, job levels and learned abilities come out exactly as in the game.  Gear is compared item by item, never as a score: a piece can matter for an element, a
 status or a monster family (Bone Mail's resistances) that a power number does not show.  A different piece stands in only when its ROM property
 record matches the recorded one byte for byte except the plain numbers (a weapon's attack power, armor's defense / evade / magic defense),
 which may not be lower: same weapon class and damage formula, no special properties.
@@ -24,7 +24,6 @@ from field import MAGIC_BITS
 
 HP_MARGIN = 0.0                # extra fraction of max HP over the worst recorded loss (user 2026-10-13: only a negative adjustment rules a record out)
 SPELL_BYTES = 12
-EXP_SLACK = 1                  # rewards must stay this far below a threshold
 BASE = ("base_str", "base_agi", "base_vit", "base_mag")
 
 
@@ -79,12 +78,11 @@ class Solved:
                           dap=sum(c.ap - si["ap"] for c in chs) / n, loss_hp=loss_hp, loss_mp=max(0, max(si["mp"] - c.mp for c in chs)),
                           used=sorted(acts[i]), sig=si)
         bag0 = start.items(); items = {}
-        for it in set(bag0) | {k for e in ends for k in e.items()}:
-            dl = sum(e.items().get(it, 0) - bag0.get(it, 0) for e in ends) / n
-            if abs(dl) > 1e-9: items[it] = dl
+        for it in bag0:                # what the party USED (potions, ethers ...); what it won is the game's own drop roll, made by the reward routine on a reuse
+            use = sum(max(0, bag0[it] - e.items().get(it, 0)) for e in ends) / n
+            if use > 1e-9: items[it] = -use
         spells = bytes(start.wram[MAGIC_BITS:MAGIC_BITS + SPELL_BYTES])
-        self.rec[key] = dict(code=self.code_key, mem=mem, items=items, spells=spells, rate=rate, n=n,
-                             gil=sum(e.gil - start.gil for e in ends) / n, frames=0)
+        self.rec[key] = dict(code=self.code_key, mem=mem, items=items, spells=spells, rate=rate, n=n, frames=0)
         self.save()
 
     # ------------------------------------------------------------------ reuse
@@ -149,7 +147,7 @@ class Solved:
                 bad = self._fits(r["mem"][ri], cur[ci], spells)
                 if bad: break
             if bad: why = why or bad; continue
-            bad = self._thresholds(r, cur, assign)
+            bad = self._mp_ok(r, cur, assign)
             if bad: why = why or bad; continue
             bag = f.items()
             for it, dl in r["items"].items():
@@ -157,24 +155,19 @@ class Solved:
             return r, assign, "ok"
         return None, None, why or "no member fits"
 
-    def _thresholds(self, r, cur, assign):
-        """The rewards must not cross a level-up or an ability / job-level ABP cost (those change the party)."""
+    def _mp_ok(self, r, cur, assign):
         for ci, ri in assign.items():
-            c = cur[ci]; m = r["mem"][ri]
-            if c["mp"] + m["dmp"] < 0: return "MP would run short"
-            if c["level"] < 99 and c["exp"] + m["dexp"] + EXP_SLACK >= self.d.level_exp(c["level"] + 1): return "level-up"
-            if m["dap"] > 0:
-                costs = [cost for cost, _ in self.ab.job_list(c["job"])]
-                if any(c["ap"] < cost <= c["ap"] + m["dap"] + EXP_SLACK for cost in costs) or c["ap"] + m["dap"] + EXP_SLACK >= 0xFFF: return "ability / job level"
+            if cur[ci]["mp"] + r["mem"][ri]["dmp"] < 0: return "MP would run short"
         return None
 
-    def apply(self, enc, bg, f, r, assign):
-        """The party's state after the fight, from the recorded adjustments."""
+    def apply(self, enc, bg, f, r, assign, award):
+        """The party's state after the fight.  The rewards (exp, ABP, gil, drops, and with them every level-up, job level-up and ability learned) come
+        from the game's own victory code: `award(Field) -> Field` runs the encounter's battle with the monsters already at 0 HP, which ends at once
+        in a victory.  The recorded HP / MP changes and the items used are then applied on top."""
+        f = award(f)
         for ci, ri in assign.items():
             m = r["mem"][ri]; ch = f.character(ci)
-            ch.hp = max(1, min(ch.max_hp, round(ch.hp + m["dhp"]))); ch.mp = max(0, min(ch.max_mp, round(ch.mp + m["dmp"])))
-            ch.exp = ch.exp + round(m["dexp"]); ch.ap = ch.ap + round(m["dap"]); f.set_character(ci, ch)
-        f.gil = f.gil + round(r["gil"])
+            ch.hp = max(1, min(ch.max_hp, round(ch.hp + m["dhp"]))); ch.mp = max(0, min(ch.max_mp, round(ch.mp + m["dmp"]))); f.set_character(ci, ch)
         bag = f.items()
         for it, dl in r["items"].items():
             v = bag.get(it, 0) + round(dl)
@@ -182,7 +175,7 @@ class Solved:
             else: bag.pop(it, None)
         f.set_items(bag)
         self.hits += 1
-        return round(sum(m["dexp"] for m in r["mem"].values()))
+        return f
 
 
 MAGIC_CAST = 0x2C              # the command id a cast leaves in the menu data; `selected` is then the spell id

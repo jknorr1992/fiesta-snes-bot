@@ -727,6 +727,20 @@ class Campaign:
             self._ckey = h.hexdigest()
         return self._ckey
 
+    def award(self, f, enc, bg):
+        """The rewards of a won fight from the game's own victory code: the battle runs with every monster already at 0 HP and ends in a victory at once,
+        the ROM pays exp, ABP, gil and drops (and does the level-ups, job levels and abilities).  Drops use a seed that changes from use to use."""
+        from scenario import run_battle
+        from sim import BattleSim
+        if "_asim" not in self.__dict__: self._asim = BattleSim(open(self.rom_path, "rb").read())
+        w = bytearray(f.to_wram()); self._awards = getattr(self, "_awards", 0) + 1; w[RNG_SEED] = (self._awards * 37 + enc) & 0xFF
+        def pol(sim, char):
+            for m in sim.monsters: sim.ww(m.b + 6, 0)
+            return Command.fight(0)
+        r = run_battle(bytes(w), enc, bg, policy=pol, max_frames=3000, sim=self._asim, keep_wram=True)
+        if r.outcome != "victory" or not r.wram: raise RuntimeError(f"reward routine for battle {enc} ended in {r.outcome} {r.crash}")
+        return Field.from_wram(r.wram, self.d)
+
     def solved_fights(self):
         """The distilled random fights (solved.py), kept next to the batch cache and valid for this ROM + battle code."""
         if self.solved is None:
@@ -870,7 +884,8 @@ class Campaign:
         if memo:
             sv = self.solved_fights(); rec, assign, why = sv.lookup(enc, bg, self.state)
             if rec is not None:
-                f = Field.from_wram(self.state.to_wram(), self.d); exp = sv.apply(enc, bg, f, rec, assign); self.state = f
+                f = sv.apply(enc, bg, Field.from_wram(self.state.to_wram(), self.d), rec, assign, lambda g: self.award(g, enc, bg))
+                exp = sum(max(0, f.character(i).exp - self.state.character(i).exp) for i in range(4)); self.state = f
                 self.memo_fights = getattr(self, "memo_fights", 0) + 1
                 return True, dict(battle=enc, name=self.d.battle_summary(enc).split(": ", 1)[-1], rate=rec["rate"], map=str(label), memo=True, exp=exp, frames=rec.get("frames", 0))
             if why not in ("no record",): sv.invalid += 1
