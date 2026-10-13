@@ -101,6 +101,11 @@ class Exec(Nav):
             if act.kind == "talk" and act.npc is not None and act.stand and self.chase_talk(act): self.settle(); return
             if act.stand: self.press(BTN[act.stand], 4, 6)
             if act.kind != "turn": self.press("A", 4, 10)
+        if act.kind in ("dive", "surface"):                 # settle() mashes A, which on a submarine dives or surfaces again: only wait for the scene to end
+            for _ in range(40):
+                if not self.busy(): break
+                self.wait(30)
+            return
         self.settle()
 
     def use_tent(self, item=0xF0):
