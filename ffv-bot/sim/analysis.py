@@ -6,10 +6,10 @@ from rom import Rom
 from index import Index
 
 class Effects:
-    __slots__ = ("sets", "clears", "npc_on", "npc_off", "loads", "veh", "mods", "steps", "calls", "ends", "gameover", "battle")
+    __slots__ = ("sets", "clears", "npc_on", "npc_off", "loads", "loadpos", "modcmds", "veh", "mods", "steps", "calls", "ends", "gameover", "battle")
     def __init__(self):
         self.sets, self.clears, self.npc_on, self.npc_off = set(), set(), set(), set()
-        self.loads = []; self.veh = False; self.mods = False; self.steps = False; self.calls = set(); self.ends = False; self.gameover = False
+        self.loads = []; self.loadpos = []; self.modcmds = []; self.veh = False; self.mods = False; self.steps = False; self.calls = set(); self.ends = False; self.gameover = False
         self.battle = False
 
 class Analysis:
@@ -23,10 +23,10 @@ class Analysis:
 
     def _scan(self, e):
         f = Effects()
-        pending = None                  # a map load followed by another load with no branch or end in between is only a scene location
+        pending = None; ppos = None     # a map load followed by another load with no branch or end in between is only a scene location
         for c in self.E.cmds(e):
             op, b = c.op, c.b
-            if op in (0xF0, 0xF1, 0xFF, 0xCD, 0xE7) and pending is not None: f.loads.append(pending); pending = None
+            if op in (0xF0, 0xF1, 0xFF, 0xCD, 0xE7) and pending is not None: f.loads.append(pending); f.loadpos.append(ppos); pending = None
             if op == 0xA2: f.sets.add(b[1])
             elif op == 0xA4: f.sets.add(256 + b[1])
             elif op == 0xA3: f.clears.add(b[1])
@@ -36,15 +36,19 @@ class Analysis:
             elif op in (0xE0, 0xE1, 0xE3) or op == 0xD6:
                 m = b[1] | (b[2] & 3) << 8 if op != 0xD6 else (b[1] | b[2] << 8) & 0x1FFF
                 pending = m                  # replaces an earlier load of the same straight-line stretch
+                ppos = (m, b[3] & 0x3F, b[4]) if op != 0xD6 and m >= 5 else (m, None, None)
             elif op in (0xD2, 0xC2): f.veh = True
-            elif op in (0xF3, 0xF4): f.mods = True
+            elif op in (0xF3, 0xF4):
+                f.mods = True
+                if b[1] >> 6 == 0: f.modcmds.append((op, bytes(b)))
             elif 1 <= op <= 6: f.steps = True
             elif op == 0xCD: f.calls.add(b[1] | b[2] << 8)
+            elif op == 0xD1: f.calls.add(b[2] | b[3] << 8)                      # timer event
             elif op == 0xBF and b[1] == 0x0F: f.ends = True
             elif op == 0xBF and b[1] == 0x00: f.gameover = True
             elif op in (0xBD, 0xE2): f.battle = True
-            elif op == 0xBF and b[1] == 1: f.loads.append(-1)
-        if pending is not None: f.loads.append(pending)
+            elif op == 0xBF and b[1] == 1: f.loads.append(-1); f.loadpos.append((-1, None, None))
+        if pending is not None: f.loads.append(pending); f.loadpos.append(ppos)
         return f
 
     def _closure(self, e):
@@ -54,7 +58,7 @@ class Analysis:
             if x in seen or x >= self.E.N: continue
             seen.add(x); d = self._direct[x]
             out.sets |= d.sets; out.clears |= d.clears; out.npc_on |= d.npc_on; out.npc_off |= d.npc_off
-            out.loads += d.loads; out.veh |= d.veh; out.mods |= d.mods; out.steps |= d.steps; out.ends |= d.ends
+            out.loads += d.loads; out.loadpos += d.loadpos; out.veh |= d.veh; out.mods |= d.mods; out.steps |= d.steps; out.ends |= d.ends
             out.gameover |= d.gameover; out.battle |= d.battle
             st += list(d.calls)
         return out

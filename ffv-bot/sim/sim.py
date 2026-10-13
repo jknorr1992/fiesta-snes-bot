@@ -22,12 +22,13 @@ FACE_OF_DIR = {1: 0, 2: 1, 3: 2, 4: 3}      # walking direction (1 up, 2 right, 
 DIR_OF_FACE = {v: k for k, v in FACE_OF_DIR.items()}
 
 class Action:
-    __slots__ = ("kind", "desc", "cost", "target", "face", "event", "path", "stand", "npc")
+    __slots__ = ("kind", "desc", "cost", "target", "face", "event", "path", "stand", "npc", "frames")
     def __init__(self, kind, desc, cost, target, face=None, event=None):
         self.kind, self.desc, self.cost, self.target, self.face, self.event = kind, desc, cost, target, face, event
         self.path = None     # walking directions (1 up 2 right 3 down 4 left) from the current position to the standing tile
         self.stand = None    # direction to press at the end to turn without moving (None = none)
         self.npc = None      # talk to a wandering NPC: its object index (the walk to it is repeated live until it stands where the talk needs)
+        self.frames = None   # game time the action takes (timed micro-steps only): the event timer counts it down
     def __repr__(self): return "<%s %s cost=%s>" % (self.kind, self.desc, self.cost)
 
 DMG_COST = 6                                            # extra path cost of stepping on a damage floor tile (tile property byte 1 bit $20)
@@ -68,7 +69,7 @@ class Sim:
 
     def key(self, s):
         return (s.flags & self.read_mask, s.npcf & self.npc_mask, s.map, s.veh, tuple(map(tuple, s.vtab)),
-                tuple(sorted(s.mods.items())), tuple(sorted(s.npcpos.items())), tuple(sorted(s.npcvis.items())), s.parent, s.ended)
+                tuple(sorted(s.mods.items())), tuple(sorted(s.npcpos.items())), tuple(sorted(s.npcvis.items())), s.parent, s.ended, s.timer and (s.timer[1], (s.timer[0] + 7) >> 3))
 
     # ------------------------------------------------------------------ conditions
     def ram(self, s, addr):
@@ -273,7 +274,30 @@ class Sim:
             if ev: return ("event", ev)
         return None
 
+    STEP_FRAMES = 8                                     # one tile at walking speed: 2 px per frame, 16 px per tile
+
+    def _timed_actions(self, s):
+        """While an event timer (d1) runs, time matters: one tile or one wait of STEP_FRAMES at a time, so that the timer's event fires at the
+        right moment of the walk (the pyramid's rotating pillars). The long wait ends exactly when the timer does."""
+        lm = self.localmap(s)
+        acts = []
+        for d, (nx, ny, nz) in lm.moves(s.x, s.y, s.z):
+            tgt = State.clone(s); tgt.x, tgt.y, tgt.z, tgt.face = nx, ny, nz, FACE_OF_DIR[d]
+            step = 1 + (DMG_COST if lm.props(nx, ny)[0] & 0x20 else 0)
+            a = Action("walkstep", "step %s to (%d,%d) on map %d" % ("?URDL"[d], nx, ny, s.map), step, (tgt, True), FACE_OF_DIR[d])
+            a.path = [d]; a.frames = self.STEP_FRAMES
+            acts.append(a)
+        rem = s.timer[0]
+        for fr, nm in ((self.STEP_FRAMES, "wait a step"), (rem, "wait for the timer")):
+            if nm == "wait for the timer" and rem <= self.STEP_FRAMES: continue
+            a = Action("tickwait", "%s (%d frames, timer event %d)" % (nm, fr, s.timer[1]), max(1, fr // self.STEP_FRAMES), (State.clone(s), False))
+            a.frames = fr; a.path = []
+            acts.append(a)
+        return acts
+
     def _local_actions(self, s):
+        if s.timer and s.timer[0] > 0:
+            return self._timed_actions(s)
         lm = self.localmap(s)
         acts = []
         start = (s.x, s.y, s.z)
@@ -649,7 +673,26 @@ class Sim:
 
     def execute(self, s, act):
         """apply an action's event (if any) and arrival processing -> list of states"""
+        if act.frames is not None and s.timer:               # a timed micro-step: the timer counts the frames down; its event fires once it reaches 0
+            rem, tev = s.timer
+            due = rem <= act.frames
+            tgt, stepped = act.target
+            tgt = State.clone(tgt); tgt.timer = (0, tev) if due else (rem - act.frames, tev)
+            a2 = Action(act.kind, act.desc, act.cost, (tgt, stepped), act.face, act.event); a2.path = act.path; a2.frames = None
+            outs = self._execute(s, a2)
+            if not due: return outs
+            res = []
+            for o in outs:
+                if o.timer == (0, tev):                      # still pending (the arrival did not stop or restart it): the timer event runs now
+                    o = State.clone(o); o.timer = None
+                    res += self._run_after(o, tev, 0)
+                else: res.append(o)
+            return res
+        return self._execute(s, act)
+
+    def _execute(self, s, act):
         tgt, stepped = act.target
+        if act.kind == "tickwait": return [tgt]
         if act.path and tgt.flags >> 508 & 3:                # every party step clears the temporary event flags 508/509 ($c0c796 at StartMove/step)
             tgt = State.clone(tgt); tgt.flags &= ~(3 << 508); act = Action(act.kind, act.desc, act.cost, (tgt, stepped), act.face, act.event)
         if act.kind == "wait":              # the scripted release leaves the party at (20,61) on the live game (the VM's party-step trace drifts by 2)

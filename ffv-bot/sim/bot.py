@@ -33,6 +33,8 @@ def live_state(S, ex):
     s.vtab = [list(raw[4 * i:4 * i + 4]) for i in range(6)]
     pm = ex.read(0xAF5, 4)
     s.parent = (pm[0] | pm[1] << 8, pm[2], pm[3])
+    tb = ex.read(0xAFB, 5)                      # event timer (d1): enabled, counter, event
+    if tb[0] == 1: s.timer = (tb[1] | tb[2] << 8, tb[3] | tb[4] << 8)
     if m >= 5:
         base = LocalMap(S.R, m)
         ids = b"".join(ex.read(0x10000 + i, 1024) for i in range(0, 4096, 1024))
@@ -100,8 +102,9 @@ def goal_fn(spec):
 
 def heuristic(Rl, spec):
     k, *v = spec.split(":"); v = [int(a) for a in v]
-    if k == "map": return lambda s: Rl.levels(s.flags, s.map, s.npcf)[Rl.oM + v[0]]
-    if k == "flag": return lambda s: Rl.h_flag(v[0], s.flags, s.map, s.npcf)
+    if k == "map": return lambda s: Rl.levels(s.flags, s.map, s.npcf, (s.x, s.y))[Rl.oM + v[0]]
+    if k == "flag": return lambda s: Rl.h_flag(v[0], s.flags, s.map, s.npcf, (s.x, s.y))
+    if k == "pos": return lambda s: Rl.h_pos(v[0], v[1], v[2], s.flags, s.map, s.npcf, (s.x, s.y))
     return None
 
 
@@ -141,6 +144,7 @@ def main(argv):
             ok = True
             for i, (p, a, n) in enumerate(plan):
                 print("-> %s" % a.desc, flush=True)
+                ex.quick = i + 1 < len(plan) and plan[i + 1][1].frames is not None      # a timed stretch follows: no scene-settling that would eat into the timer
                 ex.do(p, a)
                 lv = ex.live()
                 outs = S.execute(p, a)

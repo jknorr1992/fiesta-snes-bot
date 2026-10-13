@@ -33,13 +33,41 @@ class Exec(Nav):
         raw = self.read(0xA14, 64)
         return {"map": m, "x": x, "y": y, "flags": int.from_bytes(raw, "little"), "local": self.u8(0xB53)}
 
+    quick = False
+
+    def timer_regs(self):
+        """(enabled, counter, event) of the event timer"""
+        b = self.read(0xAFB, 5)
+        return b[0], b[1] | b[2] << 8, b[3] | b[4] << 8
+
+    def timed_do(self, act):
+        """a step or a wait inside a timed stretch (the sim counts 8 frames a tile): no settling, the timer is running"""
+        if act.kind == "walkstep":
+            moved, p = self.step(BTN[act.path[0]])
+            if self.u8(0x18) == 1:                                       # random battle: the timer stands still in battle
+                print("   battle during a timed step", flush=True)
+                self.fight(); [self.press('A', 3, 20) for _ in range(20 if self.u8(0xB53) == 0 else 8)]
+            return
+        en, cnt, ev = self.timer_regs()
+        if act.frames <= 8 or not en:
+            self.wait(act.frames); return
+        for _ in range(act.frames * 3):                                  # wait until the timer's event has run: it is restarted or switched off
+            self.wait(1)
+            en2, cnt2, ev2 = self.timer_regs()
+            if not en2 or cnt2 > cnt + 2 or ev2 != ev: break
+            cnt = cnt2
+        self.wait(6)                                                     # let the event finish
+
     def do(self, s, act):
         """perform `act` from sim state s on the emulator"""
+        if act.frames is not None and act.kind in ("walkstep", "tickwait"):
+            self.timed_do(act); return
         if act.path:
             n, p = self.walk_dirs(act.path)
             if n < len(act.path) and act.npc is None:
                 self.settle()
                 return
+            if self.quick: self.wait(24); self.wait_tile(); return
         if act.kind == "wait":                              # Karnak cell: poll until the prisoner's cell is reachable, talk, mash through the scene
             for _ in range(200):
                 self.wait(600)

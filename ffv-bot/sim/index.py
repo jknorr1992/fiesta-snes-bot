@@ -34,6 +34,8 @@ class Index:
             for c in self.E.cmds(ev):
                 if c.op == 0xCD:
                     self.src.setdefault(c.b[1] | c.b[2] << 8, []).append(("call", ev, 0, 0, (), None))
+                elif c.op == 0xD1:                                                  # start timer: runs the event later
+                    self.src.setdefault(c.b[2] | c.b[3] << 8, []).append(("call", ev, 0, 0, (), None))
         # special trigger scripts not tied to a map position (world-map hooks etc.)
         for ts in range(704):
             for conds, ev in implied(self.R.trigger_script(ts)):

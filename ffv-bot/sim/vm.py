@@ -12,7 +12,7 @@ from events import EventRom, Cmd
 FACE_DX = {0: (0, -1), 1: (1, 0), 2: (0, 1), 3: (-1, 0)}      # $0adb: 0 up, 1 right, 2 down, 3 left
 
 class State:
-    __slots__ = ("flags", "npcf", "map", "x", "y", "z", "face", "veh", "vtab", "parent", "mods", "npcpos", "npcvis", "mods2", "npcface", "log", "ended", "gameover", "pc")
+    __slots__ = ("flags", "npcf", "map", "x", "y", "z", "face", "veh", "vtab", "parent", "mods", "npcpos", "npcvis", "mods2", "npcface", "log", "ended", "gameover", "pc", "timer")
     def __init__(self):
         self.flags = 0           # event flags 0-511 as an int bitmask
         self.npcf = 0            # npc flags
@@ -28,6 +28,7 @@ class State:
         self.log = []
         self.ended = False; self.gameover = False
         self.pc = None
+        self.timer = None        # event timer (d1): (frames left, event) or None; the engine runs the event once the counter reaches 0 and the party stands on a tile
 
     def clone(self):
         s = State.__new__(State)
@@ -41,7 +42,7 @@ class State:
 
     def key(self):
         return (self.flags, self.npcf, self.map, self.x, self.y, self.z, self.veh, tuple(map(tuple, self.vtab)),
-                tuple(sorted(self.mods.items())), tuple(sorted(self.npcpos.items())), tuple(sorted(self.npcvis.items())), self.parent, self.ended)
+                tuple(sorted(self.mods.items())), tuple(sorted(self.npcpos.items())), tuple(sorted(self.npcvis.items())), self.parent, self.ended, self.timer and (self.timer[1], (self.timer[0] + 7) >> 3))
 
     def flag(self, n): return bool(self.flags >> n & 1)
     def set_flag(self, n, v=True):
@@ -161,6 +162,8 @@ class VM:
         elif op == 0x0C: s.face = (s.face + 2) & 3          # party action $0c flips the facing (eor #$04 on the direction byte)
         elif 0x10 <= op < 0x18:
             s.face = (op - 0x10) >> 1
+        elif op == 0xD1: s.timer = (b[1] * 60 + 1, b[2] | b[3] << 8)      # start timer: seconds, event (EventCmd_d1)
+        elif op == 0x7C: s.timer = None                                  # disable timer
         elif op in (0xA2, 0xA3): s.set_flag(b[1], op == 0xA2)
         elif op in (0xA4, 0xA5): s.set_flag(256 + b[1], op == 0xA4)
         elif op in (0xCA, 0xCB): s.set_npc(b[1] | b[2] << 8, op == 0xCA)
