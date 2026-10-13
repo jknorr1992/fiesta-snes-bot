@@ -44,3 +44,10 @@ Run from saved states, driven by `bot.py` goals (planner plus live walker), mand
 - Cleft of Dimension to the Void as stage goals taken from the map graph (entrances plus event end places): 479, 480, 485, 481, 489-495, 498, 496, 502, 503, 497, 505-509, then `flag:415` (event 1827 at 509 (30,20)) and `pos:509:30:18` (event 1924). The sim plans each stage in seconds; one search over the whole chain does not finish.
 - The final battles use the battle cheats. A first run hung in the last battle (garbled screen, frozen game); reloading the state before the trigger and running with FFV_BATTLE_SNAP set got through to the THE END screen.
 Not yet done: a start-to-credits run from a new game in one go (earlier segments were driven from saved states), and the approved incremental re-flood.
+
+### Incremental re-flood experiment (2026-10-13)
+Tried reusing the unchanged-map flood for a changed map when none of the tiles the flood touches (or their neighbours) changed. It was exact
+(265 reused floods compared against full floods, 0 differences) but gave no speedup: pyramid plan 14.3 s vs 14.4 s with identical expansions,
+map:46 stage 39 s vs 40 s. Only 41 of 356 attempts could reuse the base flood (the pyramid's timer doors sit on the walked area), and the flood
+is about 10 of 16 s spent mostly on distinct tile configurations. Not kept. Event-lock chains need no extra grouping: `$BE` is screen shake,
+the engine already locks control while an event runs, and the VM yields one final tile configuration per event, so there is already one flood per used state.
