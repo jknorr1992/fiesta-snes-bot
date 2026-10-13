@@ -168,7 +168,7 @@ def main(argv):
             continue
         goal, _ = goal_fn(spec)
         h = heuristic(Rl, spec)
-        replans = 0; stuck = 0
+        replans = 0; stuck = 0; last_ckpt = 0.0
         while True:
             s = live_state(S, ex)
             for _ in range(3):
@@ -203,6 +203,9 @@ def main(argv):
                     ex.settle(); ex.wait(60); lv = ex.live()
                 match = [o for o in outs if (o.map, o.x, o.y) == (lv["map"], lv["x"], lv["y"])]
                 diffs = compare(S, lv, match[0] if match else n)
+                d = os.environ.get("FFV_BATTLE_SNAP")           # checkpoint every ~90 s while the plan goes well: a restarted container resumes from it (file name = goal being worked on)
+                if d and not diffs and time.time() - last_ckpt > 90 and not ex.u8(0x18) and not ex.u8(0xB57):
+                    last_ckpt = time.time(); ex.save_as(os.path.join(d, "ckpt_%s.state" % spec.replace(":", "_")))
                 if diffs:
                     print("   deviation: %s -> re-planning from the live state" % "; ".join(diffs), flush=True)
                     print("   live objects near the party (index: x,y script): %s" % near_objects(ex, lv), flush=True)
