@@ -17,7 +17,7 @@ sys.path.insert(0, '.')
 from pockets import Pockets
 
 class Relaxed:
-    CACHE_VERSION = 3
+    CACHE_VERSION = 4
 
     def __init__(self, sim):
         self.S = sim; A = sim.A; R = sim.R; I = A.I
@@ -77,7 +77,7 @@ class Relaxed:
             f = A.eff[e]; lab[0] = "effect of event %d" % e
             for fl in f.sets: he.append((self.oF + fl, [self.oE + e], 0))
             for s_ in f.npc_on: he.append((self.oN + s_, [self.oE + e], 0))
-            for (m, x, y) in f.loadpos:
+            for (m, x, y) in self.final_places(e):
                 if m < 0 or m >= 511: continue
                 if m < 5 or x is None: he.append((self.oM + m, [self.oE + e], 0)); continue
                 for t in (pockets_at(m, x, y) or all_pockets(m)): he.append((t, [self.oE + e], 0))
@@ -143,6 +143,21 @@ class Relaxed:
             for p in pre: self.users[p].append(i)
         self.init_npc = sim.init_npcf
         self._cache = {}
+
+    def final_places(self, e):
+        """where the party stands after event e (all branches): (map, x, y) of the end states that moved to another map, from the event VM
+        (an event can load several maps for scenes; only the last one counts). Falls back to the loads found by the static scan."""
+        c = self.__dict__.setdefault("_fin", {})
+        r = c.get(e)
+        if r is None:
+            try:
+                from vm import State
+                s0 = State(); s0.map = 511; s0.x = 20; s0.y = 20; s0.npcf = self.S.init_npcf
+                r = sorted({(o.map, o.x, o.y) for o in self.S.V.run(s0, e) if o.map != 511})
+            except Exception:
+                r = [p for p in self.S.A.eff[e].loadpos if p is not None]
+            c[e] = r
+        return r
 
     # ------------------------------------------------------------------ pocket tables (ROM-only data, cached per ROM hash)
     def _load_pockets(self):

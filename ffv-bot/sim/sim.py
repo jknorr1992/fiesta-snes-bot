@@ -298,6 +298,8 @@ class Sim:
     def _local_actions(self, s):
         if s.timer and s.timer[0] > 0:
             return self._timed_actions(s)
+        if s.flags >> 508 & 3:                       # the first party step clears the temporary flags 508/509: every walk below happens after that
+            s = State.clone(s); s.flags &= ~(3 << 508)
         lm = self.localmap(s)
         acts = []
         start = (s.x, s.y, s.z)

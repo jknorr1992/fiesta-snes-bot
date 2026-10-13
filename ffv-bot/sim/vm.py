@@ -110,7 +110,7 @@ class VM:
                 if op == 0xCD:
                     stack[-1] = (e, pc + 1, end, rep)
                     stack.append((c.b[1] | c.b[2] << 8, 0, None, 1))
-                    if len(stack) > 40: raise RuntimeError("event call depth")
+                    if len(stack) > 400: raise RuntimeError("event call depth in event %d (call chain %s)" % (ev, [f[0] for f in stack[-6:]]))
                     continue
                 if op == 0xF0:
                     # yes/no: first option runs the next 4 bytes (cd lo hi ff), second skips them
