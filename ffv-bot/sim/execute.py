@@ -84,6 +84,8 @@ class Exec(Nav):
         if act.kind in ("land", "boardA", "dive", "surface"):                  # A lands the vehicle we ride / boards the one we stand on
             self.press("A", 4, 10); self.wait(90)
             if act.kind == "surface": self.wait(60)           # the surfacing scene
+        if act.kind == "tent":                                       # Tent from the Item menu (item $F0): two columns of items, the list in inventory order
+            if not self.use_tent(): raise RuntimeError("no Tent in the bag for %s" % act.desc)
         if act.kind == "flyup":                                      # A asks whether to fly up; the first answer (the cursor starts on it) starts the scene
             self.press("A", 4, 10); self.wait(60); self.press("A", 4, 10); self.wait(90)
         if act.kind in ("talk", "turn", "press"):
@@ -92,6 +94,23 @@ class Exec(Nav):
             if act.stand: self.press(BTN[act.stand], 4, 6)
             if act.kind != "turn": self.press("A", 4, 10)
         self.settle()
+
+    def use_tent(self, item=0xF0):
+        """open the menu (X), Item (A), walk the cursor to the Tent (item list: two columns, entries with a quantity in inventory order) and use it
+        (A, A). True when the bag lost a Tent."""
+        ids = self.read(0x640, 256); qty = self.read(0x740, 256)
+        lst = [i for i in range(256) if ids[i] and qty[i]]
+        slot = next((i for i in lst if ids[i] == item), None)
+        if slot is None: return False
+        k = lst.index(slot); before = qty[slot]
+        for _ in range(4): self.press("B", 4, 10); self.wait(15)             # a menu left open would eat the presses
+        self.press("X", 4, 10); self.wait(40)
+        self.press("A", 4, 10); self.wait(40)
+        for _ in range(k // 2): self.press("DOWN", 4, 10); self.wait(10)
+        if k % 2: self.press("RIGHT", 4, 10); self.wait(10)
+        self.press("A", 4, 10); self.wait(30)
+        self.press("A", 4, 10); self.wait(120)
+        return self.read(0x740 + slot, 1)[0] < before
 
     def chase_talk(self, act, tries=30):
         """Talk to an NPC that walks about: the event depends on the direction the party faces, so stand on the tile on the far side of the

@@ -238,7 +238,7 @@ class Sim:
             e = self.ent_at(s.map).get((s.x, s.y))
             if e is not None: return self._take_entrance(s, e, depth)
         lm = self.localmap(s)
-        if lm.is_exit(s.x, s.y) and stepped:
+        if lm.is_exit(s.x, s.y):                      # SubMapLoop checks the tile under the party every frame: an event can leave it on an exit tile too
             return self._load_parent(s, depth)
         return [s]
 

@@ -74,6 +74,23 @@ def fresh_intro(ex, limit=1500):
     return False
 
 
+def fast_config(ex):
+    """Config menu: Bat.Speed and Msg.Speed to 1 (fastest), the rest as it is (user's request). Menu: X, Config is the fifth row, B leaves it.
+    Config byte WRAM $970: bits 4-6 message speed, bit 3 battle mode (1 = Wait), bits 0-2 battle speed."""
+    if ex.u8(0x970) & 0x77 == 0: return True
+    for _ in range(3):
+        ex.press("X", 4, 10); ex.wait(40)
+        for _ in range(4): ex.press("DOWN", 4, 10); ex.wait(10)
+        ex.press("A", 4, 10); ex.wait(40)
+        ex.press("DOWN", 4, 10); ex.wait(10)                      # Bat.Speed (the cursor starts on Bat.Mode)
+        for _ in range(5): ex.press("LEFT", 4, 10); ex.wait(8)
+        ex.press("DOWN", 4, 10); ex.wait(10)                      # Msg.Speed
+        for _ in range(5): ex.press("LEFT", 4, 10); ex.wait(8)
+        for _ in range(3): ex.press("B", 4, 10); ex.wait(30)
+        if ex.u8(0x970) & 0x77 == 0: return True
+    return False
+
+
 def pending_trigger(S, s):
     """event id of an event trigger that stands unfired under the party at its current tile (conditions hold), else 0"""
     if s.map < 5: return 0
@@ -93,6 +110,8 @@ def nudge(S, ex, s):
 
 
 def goal_fn(spec):
+    if spec == "end": return (lambda s: s.ended), "end"          # the ending (event command $BF $0F) has run
+    if spec.startswith("open:"): return (lambda s: True), "open"  # open:UP|RIGHT|DOWN|LEFT = face that way and press A (a chest or an NPC next to the party): live only
     k, *v = spec.split(":"); v = [int(a) for a in v]
     if k == "map": return (lambda s: s.map == v[0]), "map"
     if k == "flag": return (lambda s: s.flag(v[0])), "flag"
@@ -101,6 +120,7 @@ def goal_fn(spec):
 
 
 def heuristic(Rl, spec):
+    if spec == "end" or spec.startswith("open:"): return None
     k, *v = spec.split(":"); v = [int(a) for a in v]
     if k == "map": return lambda s: Rl.levels(s.flags, s.map, s.npcf, (s.x, s.y))[Rl.oM + v[0]]
     if k == "flag": return lambda s: Rl.h_flag(v[0], s.flags, s.map, s.npcf, (s.x, s.y))
@@ -112,15 +132,23 @@ def main(argv):
     dry = "--dry" in argv; fresh = "--fresh" in argv
     goals = []
     for a in argv:                              # @file = goals listed in a file (whitespace separated)
-        if a.startswith("@"): goals += open(a[1:]).read().split()
+        if a.startswith("@"): goals += [g for l in open(a[1:]) for g in l.split("#")[0].split()]
         elif not a.startswith("--"): goals.append(a)
     if not goals: raise SystemExit(__doc__)
     S = Sim(); Rl = Relaxed(S); ex = Exec(S)
     if fresh:
         print("fresh game: running the title and opening scenes", flush=True)
         if not fresh_intro(ex): print("intro did not reach the world map", flush=True); return 1
+        print("config: battle and message speed fastest: %s (byte $970 = %#x)" % (fast_config(ex), ex.u8(0x970)), flush=True)
     n_exp = int(os.environ.get("N_EXP", "20000"))
     for spec in goals:
+        if spec.startswith("open:"):
+            print("open: face %s and press A" % spec[5:], flush=True)
+            if not dry:
+                ex.press(spec[5:], 4, 10); ex.wait(12); ex.press("A", 4, 10); ex.wait(60)
+                for _ in range(8): ex.press("A", 4, 10); ex.wait(40)             # the item message
+                ex.settle()
+            continue
         goal, _ = goal_fn(spec)
         h = heuristic(Rl, spec)
         replans = 0
