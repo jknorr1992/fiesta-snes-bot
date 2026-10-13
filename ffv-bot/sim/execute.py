@@ -82,8 +82,16 @@ class Exec(Nav):
                 if self.fpos()[1:] == (20, 61) and not self.u8(0xB57) and not self.u8(0x59): break
             self.wait(60); self.settle(); return
         if act.kind in ("land", "boardA", "dive", "surface"):                  # A lands the vehicle we ride / boards the one we stand on
+            m_before = self.fpos()[0]
             self.press("A", 4, 10); self.wait(90)
             if act.kind == "surface": self.wait(60)           # the surfacing scene
+            if act.kind == "dive":                            # the dive scene ignores the pad until it is over: wait for the underwater map to be steady, then a little longer (a tap too early is lost and the walker's A presses would surface again)
+                last = None
+                for _ in range(30):
+                    cur = self.fpos()
+                    if cur[0] != m_before and cur == last and self.on_tile(): break
+                    last = cur; self.wait(30)
+                self.wait(90)
         if act.kind == "tent":                                       # Tent from the Item menu (item $F0): two columns of items, the list in inventory order
             if not self.use_tent(): raise RuntimeError("no Tent in the bag for %s" % act.desc)
         if act.kind == "flyup":                                      # A asks whether to fly up; the first answer (the cursor starts on it) starts the scene
