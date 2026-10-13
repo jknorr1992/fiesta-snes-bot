@@ -67,3 +67,16 @@ Bugs the live run found and the fixes:
 - Submarine: a dive scene ignores the pad until it ends (wait for it), and `settle()` mashing A dived or surfaced again (dive/surface actions now only wait).
 - Void study book (map 493): two interactions are needed live (events 1677 then 1653); the bot re-plans and does it.
 - Void boss at map 500 (event 1670): the party was wiped before the first command (max HP about 800), the game over reset the console and the A mashing started a new game. The field cheat now sets max HP 9999 as well.
+
+## Held d-pad walking and B sprint (2026-10-13)
+
+`Exec.walk_dirs` used one tap per tile (about 26 frames per tile, plus 24 frames per turn). It now calls `Nav.run_dirs`, which holds the d-pad across
+the whole stretch (taps remain the fallback when nothing moved; `FFV_HOLD=0` forces taps).
+- Pad reads: the engine reads the d-pad only on the frame a step starts. The position register is floor(scroll/32): it flips at the START of a LEFT/UP step
+  and at the END of a RIGHT/DOWN step, so a turn or release triggered by the register is a tile late. The scroll registers `$0B61` (x) and `$0B63` (y) hold
+  32 units per tile, so `run_dirs` reads them with the position in one 0x90-byte read per frame and, once the current step has covered `FFV_TURN_AT` (10) units,
+  sets the next direction (or releases after the last tile); the engine follows it at the tile boundary.
+- Polling is one RAM read per emulator frame (about 52 per second, measured); RetroArch answers network commands once per frame, so 120 Hz is not reachable.
+- B held sprints on local maps (about 8 frames per tile instead of 15, no ability needed); it does nothing on the world map. `FFV_SPRINT=0` turns it off.
+- Measured on the Tycoon meteorite map (map 122), new-game state to flag 306 with `bot.py flag:306`: taps 97 s, held 67 s, held + sprint 62 s (the walk includes cutscenes and the world-map leg).
+  A 4-tile path with turns: 76 frames walking, 46 frames sprinting, exact stops.

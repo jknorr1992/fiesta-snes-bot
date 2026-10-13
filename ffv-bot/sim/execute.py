@@ -12,6 +12,8 @@ from play import IDS
 import play_nav; play_nav.HOLDS = (1, 3, 14)
 BTN = {1: "UP", 2: "RIGHT", 3: "DOWN", 4: "LEFT"}
 
+HOLD = os.environ.get("FFV_HOLD", "1") != "0"      # walk with the d-pad held (run_dirs); FFV_HOLD=0 taps one tile at a time
+
 class Diverged(Exception): pass
 
 class Exec(Nav):
@@ -206,10 +208,16 @@ class Exec(Nav):
         k = 0                                   # tiles[0:k] done
         stall = 0; post_battle = False; reroutes = 0; rerouted = False; n0 = len(dirs)
         while k < len(dirs):
-            if k and dirs[k] != dirs[k - 1]: self.wait(24)
             if self.live_forced(): self.settle_push(); moved, p = True, self.pos()      # on a conveyor tile the engine moves the party by itself: no tap
             else:
-                moved, p = self.step(BTN[dirs[k]])
+                held = 0
+                if HOLD and not self.u8(0x18) and not self.u8(0xB57):
+                    self.wait_tile()
+                    held, _ = self.run_dirs([BTN[d] for d in dirs[k:k + 60]], None)         # key held across the whole stretch, released as the last tile starts
+                if held: moved = True
+                else:
+                    if k and dirs[k] != dirs[k - 1]: self.wait(24)
+                    moved, p = self.step(BTN[dirs[k]])                                      # nothing moved (blocked, late read): one tap, as before
                 self.settle_push(); p = self.pos()
             if self.u8(0x18) == 1 or (not moved and (self.u8(0xB57) or not self.field_running())):       # random battle (or a message box, or its result windows): win it, then go on
                 print("   battle during the walk at %s" % (self.pos(),), flush=True)

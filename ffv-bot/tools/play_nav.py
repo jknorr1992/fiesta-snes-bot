@@ -11,6 +11,8 @@ from world_model import World
 DIRS = {"UP": (0, -1), "DOWN": (0, 1), "LEFT": (-1, 0), "RIGHT": (1, 0)}
 
 HOLDS = (3, 14)
+TURN_AT = int(os.environ.get("FFV_TURN_AT", "10"))        # scroll units (of 32 per tile) a step must have covered before the next direction is set
+SPRINT = os.environ.get("FFV_SPRINT", "1") != "0"      # hold B while run_dirs walks a local map; FFV_SPRINT=0 turns it off
 
 class Nav(Game):
     _void = {}
@@ -239,27 +241,59 @@ class Nav(Game):
 
     # ---- movement ----
     def run_dirs(self, dirs, start, per_tile=24):
-        """Walk a chain of directions with the key held continuously, polling the position every frame (60 Hz). The pad is latched, so the
-        next direction is sent the moment the party reaches the previous tile (no stop between tiles); the last key is released as soon
-        as the final tile is reached so it cannot overshoot. Returns (tiles walked, pos)."""
-        m0, cx, cy = self.fpos(); held = None; done = 0
+        """Walk a chain of directions with the d-pad held; turns and the final release are timed by the scroll phase, not by the position
+        register. Measured: the engine reads the pad only on the frame a step starts, and the register ($0AD8/9) is floor(scroll/32), so it flips
+        at the START of a LEFT/UP step but at the END of a RIGHT/DOWN step (a turn sent when it flips is a tile late). The scroll registers
+        $0B61 (x) / $0B63 (y) hold 32 units per tile (2 per frame, 4 with B), so a step in progress is seen directly and once it has covered
+        TURN_AT units the pad is switched to the next direction (or released after the last tile) and the engine follows it at the tile
+        boundary. One RAM read per emulator frame (~52 Hz, the network command ceiling). B is held too on local maps (sprint, ~8 frames per tile
+        instead of 15; no effect on the world map). Returns (tiles walked, pos)."""
+        m0, cx, cy = self.fpos()
+        mask = 255 if m0 < 5 else 63                # world maps are 256 tiles wide and wrap, local maps 64
+        tiles = []; x, y = cx, cy
         for d in dirs:
-            dx, dy = DIRS[d]; exp = (cx + dx, cy + dy)
-            if held != d:
-                if held: self._send(IDS[held], False)
-                self._send(IDS[d], True); held = d
-            for _ in range(per_tile):
-                p = self.fpos()                 # one RAM read per emulator frame: the read itself paces the loop at 60 Hz
-                if p[0] != m0 or p[1:] == exp: break
-            if p[0] != m0 or p[1:] != exp: break
-            cx, cy = exp; done += 1
-        if held: self._send(IDS[held], False)
+            dx, dy = DIRS[d]; x, y = (x + dx) & mask, (y + dy) & mask; tiles.append((x, y))
+        n = len(tiles)
+        if not n: return 0, self.pos()
+        sprint = SPRINT and self.u8(0xB53) == 1     # B held = sprint on local maps (about 8 frames per tile instead of 15; no effect on the world map)
+        raw0 = bytes(self.read(0xAD4, 4)); held = None
+        if sprint: self._send(IDS["B"], True)
+        def key(d):
+            nonlocal held
+            if held == d: return
+            if held: self._send(IDS[held], False)
+            if d: self._send(IDS[d], True)
+            held = d
+        key(dirs[0])
+        st = 0; prev = 0; idle = 0; turned = -1      # st = step in progress (toward tiles[st]), prev = scroll units it had covered at the last poll
+        def covered(b, d):                           # scroll units walked in the current step (32 per tile): the scroll registers are the reliable phase
+            ph = b[0xB61 - 0xAD4] if d in ("LEFT", "RIGHT") else b[0xB63 - 0xAD4]
+            return (-ph if d in ("LEFT", "UP") else ph) & 0x1f
+        while st < n:
+            b = self.read(0xAD4, 0x90)              # position + scroll phase in one read
+            if bytes(b[:4]) != raw0: break          # map changed (door, scene)
+            mv = covered(b, dirs[st])
+            if prev and (mv < prev or mv == 0):     # the step finished (phase wrapped or is back at 0)
+                st += 1; prev = 0; idle = 0
+                if st >= n: break
+                mv = covered(b, dirs[st])
+            if mv:
+                idle = 0
+                if mv >= TURN_AT and turned != st: key(dirs[st + 1] if st + 1 < n else None); turned = st
+                prev = mv
+            else:
+                idle += 1
+                if idle > per_tile: break           # the step never started (blocked, NPC, message box)
+        key(None)
+        if sprint: self._send(IDS["B"], False)
         last = None
-        for _ in range(10):                     # let the last tile finish
+        for _ in range(12):                         # let the last tile finish
             cur = self.fpos()
-            if cur == last: break
+            if cur == last and self.on_tile(): break
             last = cur
-        return done, self.pos()
+        cur = self.fpos()
+        a = next((i + 1 for i in range(n - 1, -1, -1) if tiles[i] == cur[1:]), 0)      # tiles walked = index of the tile the party stands on
+        return a, self.pos()
 
     def on_tile(self):
         """True when the party stands exactly on a tile: the engine only reads the d-pad then (CheckPlayerMove returns while BG1 x/y scroll
