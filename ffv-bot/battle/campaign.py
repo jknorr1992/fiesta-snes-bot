@@ -36,6 +36,7 @@ from jobs import JobSwitcher
 from jobplan import Planner, Foresight, load_unlocks
 from bossneeds import BossNeeds, LOOKAHEAD_STAGES
 from sim import L, R, Command
+from solved import Solved
 
 TENT = "Tent"
 LIQUID_FLAME = 444
@@ -407,6 +408,7 @@ class Campaign:
         if a.jobs_spec: self.jobs.update(json.load(open(a.jobs_spec)))
         self.pool = Pool(a.jobs, initializer=_init, initargs=(a.rom, a.policy, a.boss_deaths, a.input_latency, forbidden_commands(a.allow_commands)))
         self.fight_log = []; self.log = []; self.t0 = time.time(); self.fights_run = 0; self.tents = 0
+        self.solved = None
         os.makedirs(a.out, exist_ok=True)
         self.state = self.new_state()
         self.jobs_unlocked = False; self.faris_in = False; self.looted = set()
@@ -710,6 +712,13 @@ class Campaign:
             self._ckey = h.hexdigest()
         return self._ckey
 
+    def solved_fights(self):
+        """The distilled random fights (solved.py), kept next to the batch cache and valid for this ROM + battle code."""
+        if self.solved is None:
+            path = os.path.join(os.path.dirname(self.a.cache.rstrip("/")) if self.a.cache else self.a.out, f"solved_{self._code_key()[:16]}.pkl")
+            self.solved = Solved(self.d, Abilities(self.d), path=path, code_key=self._code_key())
+        return self.solved
+
     def batch(self, enc, bg, runs, mode="fight", state=None):
         """Battles are deterministic for (ROM + code, party state, encounter, background, seed, mode): identical batches (a resumed or restarted run, a repeated probe) come from the disk cache (--cache DIR; --no-cache turns it off)."""
         import pickle, zlib
@@ -842,18 +851,34 @@ class Campaign:
             if len(ok) / len(fl) >= self.a.flawless:
                 info = dict(battle=enc, name=self.d.battle_summary(enc).split(": ", 1)[-1], rate=0, flee_rate=round(len(ok) / len(fl), 3), map=str(label), fled=True)
                 info["exp"] = self.adopt(ok); info["frames"] = self._frames; return True, info
+        memo = not (scripted or optional or self.timer_on or b["boss"] or b["no_run"]) and self.a.memo
+        if memo:
+            sv = self.solved_fights(); rec, why = sv.lookup(enc, bg, self.state)
+            if rec is not None:
+                f = Field.from_wram(self.state.to_wram(), self.d); exp = sv.apply(enc, bg, f, rec); self.state = f
+                self.memo_fights = getattr(self, "memo_fights", 0) + 1
+                return True, dict(battle=enc, name=self.d.battle_summary(enc).split(": ", 1)[-1], rate=rec["rate"], map=str(label), memo=True, exp=exp, frames=rec.get("frames", 0))
+            if why not in ("no record",): sv.invalid += 1
+        start = self.state
         res = self.batch(enc, bg, runs)
         self.fights_run += 1
         flawless = [r for r in res if r["flawless"]]
         rate = len(flawless) / len(res)
+        plain = True
         if rate < self.a.flawless and not scripted:           # a fight that would not count: the veteran goes all out (spends MP freely, heals against the worst hit) before giving up
             res2 = self.batch(enc, bg, runs, "allout"); self.fights_run += 1
             fl2 = [r for r in res2 if r["flawless"]]
-            if len(fl2) > len(flawless): res, flawless, rate = res2, fl2, len(fl2) / len(res2)
+            if len(fl2) > len(flawless): res, flawless, rate, plain = res2, fl2, len(fl2) / len(res2), False
         name = self.d.battle_summary(enc).split(": ", 1)[-1]
         info = dict(battle=enc, name=name, rate=round(rate, 3), map=str(label))
         if rate >= self.a.flawless:
-            info["exp"] = self.adopt(flawless); info["frames"] = self._frames; return True, info
+            info["exp"] = self.adopt(flawless); info["frames"] = self._frames
+            if memo and plain:
+                self.solved_fights().record(enc, bg, start, flawless, rate)
+                r_ = self.solved.rec.get((enc, bg))
+                if r_: r_["frames"] = self._frames
+            return True, info
+        if memo: self.solved_fights().rec.pop((enc, bg), None)
         if (scripted and not optional or self.timer_on) and self.jobs_unlocked and not self.rush and self.a.reassign:
             got = self.replan(enc, bg, label, runs, rate) if self.a.plan else self.reorganize(enc, bg, label, runs, rate)
             if got:
@@ -1187,7 +1212,7 @@ class Campaign:
     def finish(self, report, stuck=None):
         out = os.path.join(self.a.out, "report.json")
         json.dump(dict(fights=self.fight_log, report=report, final=self.summary_line(), tents_used=self.tents, fights_simulated=self.fights_run, stuck=stuck), open(out, "w"), indent=1)
-        self.say(f"finished: {self.summary_line()} | tents {self.tents} | batches {self.fights_run} (cache: {getattr(self, 'cache_hits', 0)} hits, {getattr(self, 'cache_misses', 0)} misses)")
+        self.say(f"finished: {self.summary_line()} | tents {self.tents} | batches {self.fights_run} (cache: {getattr(self, 'cache_hits', 0)} hits, {getattr(self, 'cache_misses', 0)} misses; solved fights reused {getattr(self, 'memo_fights', 0)})")
         return report
 
 
@@ -1214,6 +1239,7 @@ def make_parser():
     ap.add_argument("--shops", default=os.path.join(ROOT, "data", "shops_by_map.json"))
     ap.add_argument("--cache", default=os.path.join(os.path.expanduser("~"), ".cache", "ffv-bot", "batches"), help="directory of cached battle batches (keyed by ROM + battle code + state + seeds)")
     ap.add_argument("--no-cache", dest="cache", action="store_const", const=None, help="simulate every batch afresh")
+    ap.add_argument("--no-memo", dest="memo", action="store_false", help="simulate every random fight; no distilled 'solved fight' shortcuts (solved.py)")
     ap.add_argument("--no-flee", dest="flee", action="store_false", help="never run away from a random fight that cannot be won flawlessly")
     ap.add_argument("--flee-first", action="store_true", help="run away from every runnable random fight that can be escaped flawlessly (95%%); fight the rest")
     ap.add_argument("--until", type=int, default=None, help="stop after finishing this stage index (--list-stages shows them)")
