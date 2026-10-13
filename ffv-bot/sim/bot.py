@@ -178,7 +178,11 @@ def main(argv):
                 s2 = live_state(S, ex)
                 if (s2.map, s2.x, s2.y, s2.flags) != (s.map, s.x, s.y, s.flags): s = s2; continue
                 nudge(S, ex, s); s = live_state(S, ex)
-            if goal(s): print("goal %s reached" % spec, flush=True); break
+            if goal(s):
+                print("goal %s reached" % spec, flush=True)
+                d = os.environ.get("FFV_BATTLE_SNAP")           # checkpoint per goal: a restarted container resumes from here, not from the last battle
+                if d and not ex.u8(0x18): ex.save_as(os.path.join(d, "goal_%s.state" % spec.replace(":", "_")))
+                break
             f, k = search(S, s, goal, max_exp=n_exp, wh=1.0 if h else 0.0, h=h, log=2000)
             if not f:
                 print("no plan to %s from map %d (%d,%d) in %d expansions" % (spec, s.map, s.x, s.y, k), flush=True); return 1
