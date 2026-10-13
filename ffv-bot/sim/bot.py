@@ -129,6 +129,12 @@ def heuristic(Rl, spec):
     return None
 
 
+def checkpoint(ex, path, remaining):
+    """Save the emulator state; a .rem file next to it holds how many goals of the list are still to go (the same token can occur twice in a list)."""
+    if ex.save_as(path) is not None:
+        with open(path + ".rem", "w") as f: f.write(str(remaining))
+
+
 def main(argv):
     dry = "--dry" in argv; fresh = "--fresh" in argv
     goals = []
@@ -142,7 +148,7 @@ def main(argv):
         if not fresh_intro(ex): print("intro did not reach the world map", flush=True); return 1
         print("config: battle and message speed fastest: %s (byte $970 = %#x)" % (fast_config(ex), ex.u8(0x970)), flush=True)
     n_exp = int(os.environ.get("N_EXP", "20000"))
-    for spec in goals:
+    for gi, spec in enumerate(goals):
         if spec.startswith("at:"):                  # at:X:Y = walk to a plain tile of the current map (a chest's neighbour): breadth-first path on the live local map, no planning
             tx, ty = (int(a) for a in spec[3:].split(":"))
             s = live_state(S, ex); lm = S.localmap(s)
@@ -181,7 +187,7 @@ def main(argv):
             if goal(s):
                 print("goal %s reached" % spec, flush=True)
                 d = os.environ.get("FFV_BATTLE_SNAP")           # checkpoint per goal: a restarted container resumes from here, not from the last battle
-                if d and not ex.u8(0x18): ex.save_as(os.path.join(d, "goal_%s.state" % spec.replace(":", "_")))
+                if d and not ex.u8(0x18): checkpoint(ex, os.path.join(d, "goal_%s.state" % spec.replace(":", "_")), len(goals) - gi - 1)
                 break
             f, k = search(S, s, goal, max_exp=n_exp, wh=1.0 if h else 0.0, h=h, log=2000)
             if not f:
@@ -205,7 +211,7 @@ def main(argv):
                 diffs = compare(S, lv, match[0] if match else n)
                 d = os.environ.get("FFV_BATTLE_SNAP")           # checkpoint every ~90 s while the plan goes well: a restarted container resumes from it (file name = goal being worked on)
                 if d and not diffs and time.time() - last_ckpt > 90 and not ex.u8(0x18) and not ex.u8(0xB57):
-                    last_ckpt = time.time(); ex.save_as(os.path.join(d, "ckpt_%s.state" % spec.replace(":", "_")))
+                    last_ckpt = time.time(); checkpoint(ex, os.path.join(d, "ckpt_%s.state" % spec.replace(":", "_")), len(goals) - gi)
                 if diffs:
                     print("   deviation: %s -> re-planning from the live state" % "; ".join(diffs), flush=True)
                     print("   live objects near the party (index: x,y script): %s" % near_objects(ex, lv), flush=True)
