@@ -866,7 +866,7 @@ class Campaign:
             if len(ok) / len(fl) >= self.a.flawless:
                 info = dict(battle=enc, name=self.d.battle_summary(enc).split(": ", 1)[-1], rate=0, flee_rate=round(len(ok) / len(fl), 3), map=str(label), fled=True)
                 info["exp"] = self.adopt(ok); info["frames"] = self._frames; return True, info
-        memo = not (scripted or optional or self.timer_on or b["boss"] or b["no_run"]) and self.a.memo
+        memo = not (scripted or optional or b["boss"] or b["no_run"]) and self.a.memo
         if memo:
             sv = self.solved_fights(); rec, assign, why = sv.lookup(enc, bg, self.state)
             if rec is not None:
