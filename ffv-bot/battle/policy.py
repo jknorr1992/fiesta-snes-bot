@@ -127,6 +127,27 @@ class TacticalPolicy(SmartPolicy):
             return spells_of(self).rounds(sim, mons)[0] >= self.buff_min_rounds
         except Exception: return True
 
+    support_buffs = True
+    idle_share = 0.25
+    idle_dominance = 1.5
+    def idle_buffs(self):
+        """What a healer casts in a fight that looks short: only the shield against the kind of damage that clearly dominates (the worst physical hit
+        against the worst magical one, `idle_dominance` times more), never Haste (it pays over a long fight only)."""
+        phys, mag = self.kinds
+        if phys >= self.idle_dominance * mag and phys: return ("Protect",)
+        if mag >= self.idle_dominance * phys and mag: return ("Shell",)
+        return ()
+    def idle_caster(self, sim, me, mons):
+        """True when this member's own turn is worth next to nothing in damage (a healer: less than `idle_share` of the best turn in the party): its
+        buff costs the party no attack, so it is cast even in a fight that looks short.  The turn values are the policy's own estimate
+        (magicpolicy.turn_value: the plain Fight or the best attack spell)."""
+        if not self.support_buffs: return False
+        try:
+            from magicpolicy import spells_of
+            M = spells_of(self); vals = [M.turn_value(sim, a, mons) for a in M.allies(sim)]
+            return bool(vals) and max(vals) > 0 and M.turn_value(sim, me, mons) < self.idle_share * max(vals)
+        except Exception: return False
+
     def priority(self, m): return -m.hp                   # higher = kill first (focus fire on the weakest)
 
     def _cure_reserve(self, sim, char):
@@ -155,8 +176,10 @@ class TacticalPolicy(SmartPolicy):
         c = self._job_command(sim, me, mons, "support")
         if c is not None: return c
         # 4. buffs for hard fights
-        if self.hard and mons and self.buffs_worth(sim, mons):
+        worth = self.hard and bool(mons) and self.buffs_worth(sim, mons)
+        if self.hard and mons and (worth or self.idle_caster(sim, me, mons)):
             for sp in self.buff_sequence():
+                if not worth and self.d.spell_name(sp) not in self.idle_buffs(): continue
                 cost = self._known(sim, char, sp)
                 if cost is None or cost > me.mp - self._cure_reserve(sim, char): continue
                 for ally in sorted((c for c in party if not c.dead and c.max_hp), key=lambda c: -c.max_hp):
