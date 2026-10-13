@@ -75,7 +75,9 @@ class Game:
             if on == self._ff: return False
         for _ in range(2):
             self.cmd("FAST_FORWARD"); time.sleep(0.15)
-            if (self.frame_rate(0.1) > 1.5 * self._base_fps) == on: break
+            r = self.frame_rate(0.1)
+            if r < 1: break                             # the counter is frozen (battle, a scene loading): the speed cannot be judged and one toggle is one toggle; a second one would undo it and leave the emulator fast-forwarding while we think it is not (every later battle hangs)
+            if (r > 1.5 * self._base_fps) == on: break
         self._ff = on
         print("   fast-forward %s (%.0f -> %.0f fps)" % ("on" if on else "off", self._base_fps, self.frame_rate(0.1)), flush=True)
         return on

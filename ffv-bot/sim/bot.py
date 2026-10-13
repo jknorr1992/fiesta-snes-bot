@@ -143,6 +143,22 @@ def main(argv):
         print("config: battle and message speed fastest: %s (byte $970 = %#x)" % (fast_config(ex), ex.u8(0x970)), flush=True)
     n_exp = int(os.environ.get("N_EXP", "20000"))
     for spec in goals:
+        if spec.startswith("at:"):                  # at:X:Y = walk to a plain tile of the current map (a chest's neighbour): breadth-first path on the live local map, no planning
+            tx, ty = (int(a) for a in spec[3:].split(":"))
+            s = live_state(S, ex); lm = S.localmap(s)
+            start = (s.x, s.y, s.z); par = {start: None}; q = [start]; goal_n = None
+            for cur in q:
+                if cur[:2] == (tx, ty): goal_n = cur; break
+                for d, nxt in lm.moves(*cur):
+                    if nxt not in par: par[nxt] = (cur, d); q.append(nxt)
+            if goal_n is None: print("at: (%d,%d) is not reachable on map %d from (%d,%d)" % (tx, ty, s.map, s.x, s.y), flush=True); return 1
+            path = []
+            while par[goal_n]: goal_n, d = par[goal_n]; path.append(d)
+            path.reverse(); print("at: walk %d steps to (%d,%d)" % (len(path), tx, ty), flush=True)
+            if not dry:
+                n, _ = ex.walk_dirs(path); ex.settle()
+                if ex.fpos()[1:] != (tx, ty): print("at: stopped at %s" % (ex.fpos(),), flush=True); return 1
+            continue
         if spec.startswith("open:"):
             print("open: face %s and press A" % spec[5:], flush=True)
             if not dry:

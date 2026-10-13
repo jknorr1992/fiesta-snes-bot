@@ -23,6 +23,7 @@ def main(argv):
     s = chain_all[-1][2] if chain_all else S.initial()
     n_exp = int(os.environ.get("N_EXP", "20000")); t0 = time.time()
     for spec in goals:
+        if spec.startswith(("at:", "open:")): continue                  # live-only steps (walk next to a chest, open it)
         goal, _ = goal_fn(spec)
         if goal(s): print("%-14s already true" % spec, flush=True); continue
         t = time.time()
