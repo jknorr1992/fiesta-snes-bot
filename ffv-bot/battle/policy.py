@@ -362,12 +362,22 @@ class VeteranPolicy(TacticalPolicy):
                 inv = sim.inventory_slots
                 deficit = a.max_hp - a.hp
                 order = ([self.elixir_id] if self.elixir_id and deficit > 250 else []) + self.potion_ids
+                hi = self.threat.get(ally, (0, 0))[1]
                 for item in order:
                     slot = next((sl for sl, it in inv.items() if it == item), None)
                     if slot is not None:
+                        heal = self._item_heal(item, deficit)
+                        # a turn is worth more than a Potion's 50 HP unless it lifts the ally out of reach of the strongest hit or fills a good part of the gap
+                        if not (a.hp <= hi < a.hp + heal or heal >= 0.4 * deficit): continue
                         self.pending[("h", ally)] = (sim.frame, a.hp)
                         return Command.item(slot, party=(ally,))
         return None
+
+    def _item_heal(self, item, deficit):
+        """HP a healing item restores: base heal x multiplier of its record (Potion 10 x 5 = 50, Hi-Potion 50 x 10 = 500), a full heal for an Elixir."""
+        if item == self.elixir_id: return deficit
+        o = 0x110A80 + 8 * (item - 0xE0)
+        return self.d.r[o + 5] * self.d.r[o + 6]
 
     def _heal_amount(self, sim, me, sp):
         """(single, per target when cast on several) HP of Cure / Cure2 / Cure3 at the lowest roll: (power + 0..power/8) * M with M = level * magic / 256 + 4;
@@ -409,11 +419,34 @@ class VeteranPolicy(TacticalPolicy):
         hi = self.threat.get(c.i, (0, 0))[1]
         return self.heal_below            # measured: healing earlier than TacticalPolicy's rule only wastes turns and MP
 
+    def _finisher(self, sim, char, mons):
+        """The last monster left and an attack spell whose lowest roll (the formula's minimum: (power - magic defence) x M, doubled and defence-free
+        on a weakness, never the next roll) takes all its HP: a veteran ends the fight instead of reviving and healing while it is still there.
+        -> Command or None."""
+        if len(mons) != 1: return None
+        me = sim.party[char]; m = mons[0]
+        if me.dead or (m.i, "finish") in self.banned: return None
+        mult = ((me.level * sim.w[me.b + 0x2B]) >> 8) + 4
+        best = None
+        for sp in self.attack_all:
+            if sp in self.summon_row: continue
+            cost = self._known(sim, char, sp)
+            if cost is None or cost > me.mp or (m.i, sp) in self.banned: continue
+            info = self.spell_info(sp); a = info["power"]; el = info["element"]; mdef = sim.w[m.b + 0x2F]
+            if el:
+                if self._mon_el(sim, m, "absorb") & el or self._mon_el(sim, m, "immune") & el or self._mon_el(sim, m, "block") & el: continue
+                if self._mon_el(sim, m, "half") & el: a >>= 1
+                elif self._mon_el(sim, m, "weak") & el: a <<= 1; mdef = 0
+            if max(0, a - mdef) * mult >= m.hp and (best is None or cost < best[0]): best = (cost, sp)
+        return None if best is None else Command(MAGIC_COMMAND, 0x20, Command.monster_mask(m.i - 4), 0, best[1])
+
     def __call__(self, sim, char):
         party = sim.party
         mons = [m for m in sim.monsters if not m.dead and m.hp > 0]
         if mons: self.threat, self.kinds = self._scan(sim, party, mons)
         self.banned = set()
+        cmd = self._finisher(sim, char, mons)
+        if cmd is not None and self._counter_risk(sim, char, cmd, mons) is None: return cmd
         for _ in range(4):
             cmd = super().__call__(sim, char)
             bad = self._counter_risk(sim, char, cmd, mons)
