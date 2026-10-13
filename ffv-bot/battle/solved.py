@@ -22,7 +22,7 @@ A record belongs to the battle code it was made with: after any change to the bo
 import itertools, os, pickle
 from field import MAGIC_BITS
 
-HP_MARGIN = 0.10               # the party keeps this fraction of max HP over the worst recorded loss
+HP_MARGIN = 0.0                # extra fraction of max HP over the worst recorded loss (user 2026-10-13: only a negative adjustment rules a record out)
 SPELL_BYTES = 12
 EXP_SLACK = 1                  # rewards must stay this far below a threshold
 BASE = ("base_str", "base_agi", "base_vit", "base_mag")
@@ -45,7 +45,7 @@ class Solved:
     def __init__(self, d, abilities, path=None, code_key=""):
         self.d = d; self.ab = abilities; self.path = path; self.code_key = code_key
         self.rec = {}                  # (enc, bg) -> record
-        self.hits = self.invalid = 0
+        self.hits = self.invalid = 0; self.reasons = {}
         if path and os.path.exists(path):
             try: self.rec = pickle.load(open(path, "rb"))
             except Exception: self.rec = {}
@@ -116,7 +116,8 @@ class Solved:
         if c["hp"] <= 0: return "dead"
         if role == "idle": return None
         if c["level"] < o["level"] or c["max_hp"] < o["max_hp"]: return "weaker"
-        if c["back"] != o["back"] or c["passives"] != o["passives"]: return "row / passives differ"
+        if c["back"] != o["back"]: return "row differs"
+        if c["passives"] != o["passives"]: return "passives differ"
         if not self.gear_ok(o["equip"], c["equip"]): return "gear differs"
         if c["hp"] - role_rec["loss_hp"] < max(1, HP_MARGIN * c["max_hp"]): return "HP would run short"
         if role == "actor":
@@ -130,26 +131,31 @@ class Solved:
 
     def lookup(self, enc, bg, f):
         """-> (record, assignment {current slot: recorded slot}, why)."""
+        res = self._lookup(enc, bg, f)
+        if res[0] is None: self.reasons[res[2]] = self.reasons.get(res[2], 0) + 1
+        return res
+
+    def _lookup(self, enc, bg, f):
         key = (enc, bg); r = self.rec.get(key)
         if r is None: return None, None, "no record"
         if r["code"] != self.code_key: return None, None, "battle code changed"
         cur = signature(f); cs = [i for i, c in enumerate(cur) if c is not None]; rs = sorted(r["mem"])
         if len(cs) != len(rs): return None, None, "party size differs"
         spells = bytes(f.wram[MAGIC_BITS:MAGIC_BITS + SPELL_BYTES])
-        why = "no member fits"
+        why = None                     # the reason the first (same order) assignment fails: the others only fail by comparing different jobs
         for perm in itertools.permutations(rs):
             assign = dict(zip(cs, perm)); bad = None
             for ci, ri in assign.items():
                 bad = self._fits(r["mem"][ri], cur[ci], spells)
                 if bad: break
-            if bad: why = bad; continue
+            if bad: why = why or bad; continue
             bad = self._thresholds(r, cur, assign)
-            if bad: why = bad; continue
+            if bad: why = why or bad; continue
             bag = f.items()
             for it, dl in r["items"].items():
                 if dl < 0 and bag.get(it, 0) + dl < 1: return None, None, "items would run short"
             return r, assign, "ok"
-        return None, None, why
+        return None, None, why or "no member fits"
 
     def _thresholds(self, r, cur, assign):
         """The rewards must not cross a level-up or an ability / job-level ABP cost (those change the party)."""

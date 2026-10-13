@@ -1227,7 +1227,7 @@ class Campaign:
     def finish(self, report, stuck=None):
         out = os.path.join(self.a.out, "report.json")
         json.dump(dict(fights=self.fight_log, report=report, final=self.summary_line(), tents_used=self.tents, fights_simulated=self.fights_run, stuck=stuck), open(out, "w"), indent=1)
-        self.say(f"finished: {self.summary_line()} | tents {self.tents} | batches {self.fights_run} (cache: {getattr(self, 'cache_hits', 0)} hits, {getattr(self, 'cache_misses', 0)} misses; solved fights reused {getattr(self, 'memo_fights', 0)})")
+        self.say(f"finished: {self.summary_line()} | tents {self.tents} | batches {self.fights_run} (cache: {getattr(self, 'cache_hits', 0)} hits, {getattr(self, 'cache_misses', 0)} misses; solved fights reused {getattr(self, 'memo_fights', 0)}; not reused: {dict(sorted(self.solved.reasons.items(), key=lambda kv: -kv[1])) if self.solved else {}})")
         return report
 
 
