@@ -80,3 +80,12 @@ the whole stretch (taps remain the fallback when nothing moved; `FFV_HOLD=0` for
 - B held sprints on local maps (about 8 frames per tile instead of 15, no ability needed); it does nothing on the world map. `FFV_SPRINT=0` turns it off.
 - Measured on the Tycoon meteorite map (map 122), new-game state to flag 306 with `bot.py flag:306`: taps 97 s, held 67 s, held + sprint 62 s (the walk includes cutscenes and the world-map leg).
   A 4-tile path with turns: 76 frames walking, 46 frames sprinting, exact stops.
+
+## Fresh start-to-finish live run #2 (2026-10-13 17:18 to 2026-10-14 03:25 UTC)
+Reached the ending character stats screen (Lenna LV28 Freelancer, battle cheats on, B sprint and held d-pad walker, 232 goals of data/goals_full.txt). Needed no planner edits for the first 100 goals; fixes made on the way:
+- boiler valves toggle on every A: no A after the last message box of a press (8050f61)
+- airship deck NPCs block (7,5) for minutes: the bot waits 30 s when the party did not move (e8d90f8)
+- the cloud container died about every 15 min while the thread's turn was idle: bot.py checkpoints (FFV_BATTLE_SNAP): goal_<token>.state at each goal, ckpt_<token>.state every ~90 s, each with a .rem file (goals left); keep a turn active during runs
+- flag:192 (world 3 (112,101) into the Pyramid of Moore): the fast-forwarded A-mash in settle() sent the party back out; run with FFV_FF=0 there
+- Pyramid of Moore (map 374): step D onto trigger (14,25) runs event 1499, a scripted move onto the exit entrance (14,26). The sim does not take entrances after scripted moves, the game does. The planner now bans an action the live game answers with an unexpected map (21c3f8c); the model itself is not corrected yet.
+- the final battle keeps $18 set while the ending plays: the 240 s battle watchdog fires there (set FFV_BATTLE_TIMEOUT high or stop when the stats screen shows).
