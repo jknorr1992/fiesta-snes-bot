@@ -25,6 +25,7 @@ def search(S, s0, goal, max_exp=5000, wh=0.0, h=None, log=None, event_cost=10):
         seen.add(sg); n += 1
         if log and n % log == 0: print("exp", n, "pq", len(pq), "g", nd.g, "map", s.map, "flags", bin(s.flags & S.read_mask).count("1"), "t %.1f" % (time.time() - t0), flush=True)
         for a in acts:
+            if a.desc in getattr(S, "banned", ()): continue            # an action the live game answered with another map than the model expected (see bot.py)
             for o in S.execute(s, a):
                 if o.key() == s.key() and (o.x, o.y) == (s.x, s.y): continue
                 cnt += 1

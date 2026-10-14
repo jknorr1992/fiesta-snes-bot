@@ -214,6 +214,8 @@ def main(argv):
                     last_ckpt = time.time(); checkpoint(ex, os.path.join(d, "ckpt_%s.state" % spec.replace(":", "_")), len(goals) - gi)
                 if diffs:
                     print("   deviation: %s -> re-planning from the live state" % "; ".join(diffs), flush=True)
+                    if outs and lv["map"] not in {o.map for o in outs} and a.kind in ("walkstep", "walkevent", "step"):      # the live game answered with another map (a scripted move onto an entrance, say): never plan this action again
+                        S.banned = getattr(S, "banned", set()) | {a.desc}; print("   banned for the planner: %s" % a.desc, flush=True)
                     print("   live objects near the party (index: x,y script): %s" % near_objects(ex, lv), flush=True)
                     ok = False
                     if (lv["map"], lv["x"], lv["y"]) == (s.map, s.x, s.y):      # the party has not moved at all: something in the way (a guard or NPC that walks off after a while)
